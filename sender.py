@@ -3,7 +3,7 @@ import os
 from config import config
 from logger import setup_logger
 
-supported_events = ["started", "session_connected", "session_disconnected"]
+supported_events = ["started", "stopped"]
 env_name = "PLAYER_EVENT"
 
 logger = setup_logger("mqtt_send", "/var/log/mqtt_send.log")

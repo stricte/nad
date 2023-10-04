@@ -1,16 +1,16 @@
 # command_translator.py
 
 def translate_command(original_command):
-    # Implement your translation logic here
-    # This function should return a list of translated commands
     translated_commands = []
 
-    if original_command == "started" or original_command == "session_connected":
+    if original_command == "started":
         translated_commands.append("Main.Power=On")
         translated_commands.append("Main.Mute=Off")
         translated_commands.append("Main.SpeakerA=On")
         translated_commands.append("Main.SpeakerB=Off")
+        translated_commands.append("Main.Source=CD")
 
-    # Add more translation logic for other commands if needed
+    if original_command == "stopped":
+        translated_commands.append("Main.Power=Off")
 
     return translated_commands

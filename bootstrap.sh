@@ -13,7 +13,7 @@ VENV_NAME="nad"
 # Install Python 3 and create a virtual environment
 echo "Installing Python 3 and creating a virtual environment..."
 apt-get update
-apt-get install -y python3 python3-pip virtualenv
+apt-get install -y python3 python3-pip virtualenv mosquitto
 
 # Create and activate the virtual environment
 echo "Creating and activating virtual environment: $VENV_NAME"
