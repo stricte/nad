@@ -13,10 +13,14 @@ class Processor:
         self.last_command_time: datetime = None
 
     def process(self, received_event):
+        self.logger.info(f"Received event {received_event}")
+
         command = Command(received_event)
 
-        if command.is_postponed is False:
+        if command.is_postponed() is False:
             self.process_regular(command)
+        else:
+          self.logger.info(f"Skiping postponed event {received_event}")
 
         self.__update_last_command(command)
 
