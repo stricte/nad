@@ -1,6 +1,5 @@
 import time
 import paho.mqtt.client as mqtt
-from daemonize import Daemonize
 from serial_device import SerialDevice
 from logger import setup_logger
 from translator import translate_command
@@ -47,8 +46,4 @@ def run_script():
             time.sleep(5)  # Wait for a few seconds before attempting reconnection
 
 if __name__ == "__main__":
-    pid_file = config.daemon_pid
-
-    # Daemonize the script
-    daemon = Daemonize(app="mqtt_receive", pid=pid_file, action=run_script)
-    daemon.start()
+    run_script()

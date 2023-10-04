@@ -1,0 +1,13 @@
+[Unit]
+Description=MQTT Receive Daemon for NAD
+After=network.target
+
+[Service]
+Type=simple
+User=nad
+WorkingDirectory=/opt/nad
+ExecStart=/opt/nad/nad/bin/python /opt/nad/receiver.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
