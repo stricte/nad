@@ -10,7 +10,7 @@ def translate_command(original_command):
         translated_commands.append("Main.SpeakerB=Off")
         translated_commands.append("Main.Source=CD")
 
-    if original_command == "stopped":
+    if original_command == "stopped" or original_command == "paused":
         translated_commands.append("Main.Power=Off")
 
     return translated_commands

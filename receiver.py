@@ -1,49 +1,34 @@
 import time
 import paho.mqtt.client as mqtt
-from serial_device import SerialDevice
+from mqtt_handler import MQTTHandler
 from logger import setup_logger
 from translator import translate_command
 from config import config
-
-logger = setup_logger(config.logger_name, config.logger_path)
-
-def on_message(_client, _userdata, message):
-    received_command = message.payload.decode()
-    logger.info(f"Received command from MQTT: {received_command}")
-
-    translated_commands = translate_command(received_command)
-
-    with SerialDevice(config.serial, logger=logger) as device:  # Pass the logger
-        for translated_command in translated_commands:
-            device.send_command(translated_command)
-            response = device.receive_response()
-            logger.info(f"Sent command to device: {translated_command}, Response: {response}")
-
-def on_connect(_client, _userdata, _flags, rc):
-    if rc == 0:
-        logger.info("Connected to MQTT broker")
-    else:
-        logger.error(f"Connection error. Return code: {rc}")
+from datetime import datetime
+from serial_device import SerialDevice
+from processor import Processor
 
 def run_script():
+    logger = setup_logger(config.logger_name, config.logger_path)
+
+    serial = SerialDevice(config.serial, logger)
+    processor = Processor(serial, logger)
+    handler = MQTTHandler(processor, logger)
+
+    client = mqtt.Client()
+    client.on_connect = handler.on_connect
+    client.on_message = handler.on_message
+    client.reconnect_delay_set(min_delay=1, max_delay=120)
+    client.connect(config.broker_ip, config.broker_port)
+    client.subscribe(config.broker_topic)
+
     while True:
         try:
-            client = mqtt.Client()
-            client.on_connect = on_connect
-            client.on_message = on_message
-            client.connect(config.broker_ip, 1883)
-            client.subscribe(config.broker_topic)
-
-            # Start the MQTT client loop
             client.loop_forever()
-        except KeyboardInterrupt:
-            # Handle keyboard interrupt (e.g., Ctrl+C) for graceful exit
-            logger.info("Received keyboard interrupt. Exiting gracefully.")
-            break
+            processor.process_postponed()
         except Exception as e:
-            # Handle other exceptions and attempt reconnection
             logger.error(f"An error occurred: {e}")
-            time.sleep(5)  # Wait for a few seconds before attempting reconnection
+            time.sleep(1)
 
 if __name__ == "__main__":
     run_script()
