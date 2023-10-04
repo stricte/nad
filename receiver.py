@@ -9,7 +9,7 @@ from serial_device import SerialDevice
 from processor import Processor
 
 def run_script():
-    logger = setup_logger(config.logger_name, config.logger_path)
+    logger = setup_logger()
 
     serial = SerialDevice(config.serial, logger)
     processor = Processor(serial, logger)
@@ -24,7 +24,7 @@ def run_script():
 
     while True:
         try:
-            client.loop_forever()
+            client.loop()
             processor.process_postponed()
         except Exception as e:
             logger.error(f"An error occurred: {e}")

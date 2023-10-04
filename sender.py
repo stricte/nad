@@ -3,10 +3,10 @@ import os
 from config import config
 from logger import setup_logger
 
-supported_events = ["started", "stopped"]
+supported_events = ["started", "stopped", "paused", "playing"]
 env_name = "PLAYER_EVENT"
 
-#logger = setup_logger("mqtt_send", "/var/log/nad/mqtt_send.log")
+logger = setup_logger()
 
 def send_command(command):
     client = mqtt.Client()
@@ -18,9 +18,9 @@ def send_command(command):
 if __name__ == "__main__":
     command_to_send = os.environ.get(env_name)
 
-    #logger.info(f"Received raw librespot event {command_to_send}")
+    logger.info(f"Received raw librespot event {command_to_send}")
 
     if command_to_send and command_to_send in supported_events:
-        #logger.info(f"Event {command_to_send} is supported")
+        logger.info(f"Event {command_to_send} is supported")
         send_command(command_to_send)
 

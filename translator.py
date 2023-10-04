@@ -3,7 +3,7 @@
 def translate_command(original_command):
     translated_commands = []
 
-    if original_command == "started":
+    if original_command == "started" or original_command == "playing":
         translated_commands.append("Main.Power=On")
         translated_commands.append("Main.Mute=Off")
         translated_commands.append("Main.SpeakerA=On")

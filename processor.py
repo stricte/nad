@@ -13,14 +13,12 @@ class Processor:
         self.last_command_time: datetime = None
 
     def process(self, received_event):
-        self.logger.info(f"Received event {received_event}")
-
         command = Command(received_event)
 
         if command.is_postponed() is False:
             self.process_regular(command)
         else:
-          self.logger.info(f"Skiping postponed event {received_event}")
+          self.logger.info(f"Skiping postponed event: {received_event}")
 
         self.__update_last_command(command)
 
@@ -38,7 +36,7 @@ class Processor:
         if self.last_command.is_postponed() is False:
             return
 
-        last_command_minutes_ago = (datetime.now() - self.last_command_time).total_seconds() / 60.0
+        last_command_minutes_ago = int((datetime.now() - self.last_command_time).total_seconds() / 60.0)
         if last_command_minutes_ago > self.POSTPONE_THRESHOLD_IN_MINUTES:
             self.process_regular(self.last_command)
             self.last_command = None

@@ -9,7 +9,4 @@ class Command:
         return translate_command(self.event_name)
 
     def is_postponed(self):
-        if self.event_name == 'paused':
-            return True
-        else:
-            return False
+        return self.event_name == 'paused'
