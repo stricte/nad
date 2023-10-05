@@ -10,7 +10,7 @@ class CommandProcessors:
         def __init__(self, logger) -> None:
             self.logger = logger
 
-        def resolve(self, command):
+        def resolve(self, command: Command):
             if command.event_name == "started":
                 return CommandProcessors.Base(command, self.logger)
             elif command.event_name == "stopped":

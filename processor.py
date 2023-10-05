@@ -27,6 +27,9 @@ class Processor:
     def process_postponed(self) -> None:
         last_command = self.command_history.get_previous_command()
 
+        if last_command is None:
+            return
+
         command_processor = self.__command_processor(last_command)
 
         if command_processor.should_process_now():
