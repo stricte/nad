@@ -33,4 +33,4 @@ class Processor:
             command_processor.process(self.serial, self.command_history)
 
     def __command_processor(self, command: Command) -> CommandProcessors.Base:
-        return CommandProcessors.Resolver().resolve(command)
+        return CommandProcessors.Resolver(self.logger).resolve(command)
