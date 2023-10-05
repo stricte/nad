@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from translator import translate_command
 from datetime import datetime
 from typing import List
@@ -9,7 +9,7 @@ class Command:
     event_name: str
     received_at: datetime
     processed_at: datetime = None
-    responses: List[str] = []
+    responses: List[str] = field(default_factory=list)
 
     @classmethod
     def receive(self, event_name: str):
