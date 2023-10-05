@@ -1,4 +1,5 @@
 from command import Command
+from typing import Union
 
 
 class CommandHistory:
@@ -10,8 +11,8 @@ class CommandHistory:
         self.one_before_previous_command = self.previous_command
         self.previous_command = new_command
 
-    def get_previous_command(self) -> Command | None:
+    def get_previous_command(self) -> Union[Command, None]:
         return self.previous_command
 
-    def get_one_before_previous_command(self) -> Command | None:
+    def get_one_before_previous_command(self) -> Union[Command, None]:
         return self.one_before_previous_command
