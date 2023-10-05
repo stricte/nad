@@ -2,6 +2,7 @@ import serial
 import time
 import logging
 
+
 class SerialDevice:
     def __init__(self, port_name, logger=None):
         self.port_name = port_name
@@ -17,7 +18,14 @@ class SerialDevice:
 
     def open(self):
         if not self.ser:
-            self.ser = serial.Serial(self.port_name, baudrate=115200, bytesize=8, parity='N', stopbits=1, timeout=1)
+            self.ser = serial.Serial(
+                self.port_name,
+                baudrate=115200,
+                bytesize=8,
+                parity="N",
+                stopbits=1,
+                timeout=1,
+            )
             self.logger.info(f"Serial port '{self.port_name}' opened.")
 
     def close(self):

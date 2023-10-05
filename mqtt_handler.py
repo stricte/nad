@@ -2,6 +2,7 @@ import time
 from datetime import datetime
 from config import config
 
+
 class MQTTHandler:
     def __init__(self, processor, logger) -> None:
         self.processor = processor

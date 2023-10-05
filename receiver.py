@@ -8,6 +8,7 @@ from datetime import datetime
 from serial_device import SerialDevice
 from processor import Processor
 
+
 def run_script():
     logger = setup_logger()
 
@@ -29,6 +30,7 @@ def run_script():
         except Exception as e:
             logger.error(f"An error occurred: {e}")
             time.sleep(1)
+
 
 if __name__ == "__main__":
     run_script()

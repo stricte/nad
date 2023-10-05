@@ -8,4 +8,5 @@ class AppConfig:
         self.serial = "/dev/ttyUSB0"
         self.daemon_pid = "/var/run/nad/mqtt_receive.pid"
 
+
 config = AppConfig()

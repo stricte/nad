@@ -1,47 +1,42 @@
-from translator import translate_command
-from datetime import datetime
 from command import Command
+from command_processors import CommandProcessors
+from command_history import CommandHistory
+
 
 class Processor:
-    POSTPONE_THRESHOLD_IN_MINUTES = 5
-
     def __init__(self, serial, logger) -> None:
         self.serial = serial
         self.logger = logger
 
-        self.last_command: Command = None
-        self.last_command_time: datetime = None
+        self.command_history = CommandHistory()
 
-    def process(self, received_event):
-        command = Command(received_event)
+    def process(self, received_event) -> None:
+        command = Command.receive(received_event)
+        command_processor = self.__command_processor(command)
 
-        if command.is_postponed() is False:
-            self.process_regular(command)
+        if command_processor is None:
+            return
+
+        if not command_processor.should_process_now():
+            self.logger.info(
+                f"Should process now returned False for: {received_event} while regular run"
+            )
+            return
+
+        if command_processor.should_process_immediately():
+            command_processor.process(self.serial, self.command_history)
         else:
-          self.logger.info(f"Skiping postponed event: {received_event}")
+            self.logger.info(f"Skiping postponed event: {received_event}")
 
-        self.__update_last_command(command)
+        self.command_history.add_command(command)
 
-    def process_regular(self, command):
-        with self.serial as device:
-            for translated_command in command.translated_commands():
-                device.send_command(translated_command)
-                response = device.receive_response()
-                self.logger.info(f"Sent command to device: {translated_command}, Response: {response}")
+    def process_postponed(self) -> None:
+        last_command = self.command_history.get_previous_command()
 
-    def process_postponed(self):
-        if self.last_command is None or self.last_command_time is None:
-            return
+        command_processor = self.__command_processor(last_command)
 
-        if self.last_command.is_postponed() is False:
-            return
+        if command_processor.should_process_now():
+            command_processor.process(self.serial, self.command_history)
 
-        last_command_minutes_ago = int((datetime.now() - self.last_command_time).total_seconds() / 60.0)
-        if last_command_minutes_ago > self.POSTPONE_THRESHOLD_IN_MINUTES:
-            self.process_regular(self.last_command)
-            self.last_command = None
-            self.last_command_time = None
-
-    def __update_last_command(self, command):
-        self.last_command = command
-        self.last_command_time = datetime.now()
+    def __command_processor(self, command: Command) -> CommandProcessors.Base:
+        return CommandProcessors.Resolver().resolve(command)

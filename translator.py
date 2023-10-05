@@ -1,5 +1,6 @@
 # command_translator.py
 
+
 def translate_command(original_command):
     translated_commands = []
 

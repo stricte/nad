@@ -8,12 +8,14 @@ env_name = "PLAYER_EVENT"
 
 logger = setup_logger()
 
+
 def send_command(command):
     client = mqtt.Client()
     client.connect(config.broker_ip, config.broker_port)
 
     # Publish the command to the MQTT topic
     client.publish(config.broker_topic, command)
+
 
 if __name__ == "__main__":
     command_to_send = os.environ.get(env_name)
@@ -23,4 +25,3 @@ if __name__ == "__main__":
     if command_to_send and command_to_send in supported_events:
         logger.info(f"Event {command_to_send} is supported")
         send_command(command_to_send)
-
