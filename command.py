@@ -8,8 +8,8 @@ from typing import List
 class Command:
     event_name: str
     received_at: datetime
-    processed_at: datetime
-    responses: List[str]
+    processed_at: datetime = None
+    responses: List[str] = []
 
     @classmethod
     def receive(self, event_name: str):
