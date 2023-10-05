@@ -17,12 +17,6 @@ class Processor:
         if command_processor is None:
             return
 
-        if not command_processor.should_process_now():
-            self.logger.info(
-                f"Should process now returned False for: {received_event} while regular run"
-            )
-            return
-
         if command_processor.should_process_immediately():
             command_processor.process(self.serial, self.command_history)
         else:

@@ -12,13 +12,13 @@ class CommandProcessors:
 
         def resolve(self, command):
             if command.event_name == "started":
-                return CommandProcessors.Base(command)
+                return CommandProcessors.Base(command, self.logger)
             elif command.event_name == "stopped":
-                return CommandProcessors.Base(command)
+                return CommandProcessors.Base(command, self.logger)
             elif command.event_name == "paused":
-                return CommandProcessors.Paused(command)
+                return CommandProcessors.Paused(command, self.logger)
             elif command.event_name == "playing":
-                return CommandProcessors.Playing(command)
+                return CommandProcessors.Playing(command, self.logger)
             else:
                 self.logger.info(f"No command resolver for command: {command}")
 
@@ -26,8 +26,6 @@ class CommandProcessors:
         def __init__(self, command: Command, logger) -> None:
             self.command = command
             self.logger = logger
-
-            self.translated_commands = command.translated_commands()
 
         def should_process_immediately(self) -> bool:
             return True
@@ -37,7 +35,7 @@ class CommandProcessors:
 
         def process(self, serial_device: SerialDevice, command_history: CommandHistory):
             responses = []
-            for translated_command in self.translated_commands:
+            for translated_command in self.command.translated_commands():
                 serial_device.send_command(translated_command)
                 response = serial_device.receive_response()
                 responses.append(response)
