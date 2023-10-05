@@ -61,7 +61,7 @@ class CommandProcessors:
     class Playing(Base):
         def process(self, serial_device: SerialDevice, command_history: CommandHistory):
             if self.__should_process(command_history):
-                return super().process(serial_device)
+                return super().process(serial_device, command_history)
             else:
                 self.command.mark_processed([])
 
