@@ -35,13 +35,11 @@ class CommandProcessors:
 
         def process(self, serial_device: SerialDevice, command_history: CommandHistory):
             responses = []
-            for translated_command in self.command.translated_commands():
-                serial_device.send_command(translated_command)
-                response = serial_device.receive_response()
-                responses.append(response)
-                self.logger.info(
-                    f"Sent command to device: {translated_command}, Response: {response}"
-                )
+            with serial_device:
+                for translated_command in self.command.translated_commands():
+                    serial_device.send_command(translated_command)
+                    response = serial_device.receive_response()
+                    responses.append(response)
 
             self.command.mark_processed(responses)
 
