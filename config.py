@@ -3,6 +3,7 @@ class AppConfig:
         self.broker_ip = "127.0.0.1"
         self.broker_port = 1883
         self.broker_topic = "nad"
+        self.event_dedupe_window_seconds = 0
         self.mqtt_ingress_enabled = True
         self.http_ingress_enabled = False
         self.http_ingress_shadow_mode = True

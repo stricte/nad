@@ -14,7 +14,11 @@ def run_script():
 
     serial = SerialDevice(config.serial, logger)
     processor = Processor(serial, logger)
-    event_router = EventRouter(processor, logger)
+    event_router = EventRouter(
+        processor,
+        logger,
+        dedupe_window_seconds=config.event_dedupe_window_seconds,
+    )
     http_ingress = HTTPIngressServer(event_router, logger, config)
     http_ingress.start()
 
