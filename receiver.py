@@ -19,6 +19,7 @@ def run_script():
         processor,
         logger,
         dedupe_window_seconds=config.event_dedupe_window_seconds,
+        stale_event_window_seconds=config.stale_event_window_seconds,
         source_priorities=config.source_priorities,
         source_precedence_window_seconds=config.source_precedence_window_seconds,
     )
