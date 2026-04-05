@@ -20,14 +20,19 @@ def run_script():
         logger,
         dedupe_window_seconds=config.event_dedupe_window_seconds,
     )
-    http_ingress = HTTPIngressServer(event_router, logger, config)
-    http_ingress.start()
     volumio_registration = VolumioRegistrationClient(logger, config)
     volumio_registration_manager = VolumioRegistrationManager(
         volumio_registration,
         logger,
         config,
     )
+    http_ingress = HTTPIngressServer(
+        event_router,
+        logger,
+        config,
+        status_provider=volumio_registration_manager.status,
+    )
+    http_ingress.start()
     volumio_registration_manager.ensure_registration()
 
     client = mqtt.Client()

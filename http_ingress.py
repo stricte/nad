@@ -87,8 +87,8 @@ class HTTPIngressMetrics:
         }
 
 
-def build_status_payload(config, metrics):
-    return {
+def build_status_payload(config, metrics, registration_status=None):
+    payload = {
         "http_ingress_enabled": config.http_ingress_enabled,
         "http_ingress_shadow_mode": config.http_ingress_shadow_mode,
         "http_ingress_host": config.http_ingress_host,
@@ -98,13 +98,19 @@ def build_status_payload(config, metrics):
         "http_ingress_max_body_bytes": config.http_ingress_max_body_bytes,
         "metrics": metrics.as_dict(),
     }
+    if registration_status is not None:
+        payload["volumio_registration"] = registration_status
+
+    return payload
 
 
-def handle_status_request(path, config, metrics):
+def handle_status_request(path, config, metrics, registration_status=None):
     if path != config.http_ingress_status_path:
         return 404, b"Not Found", "text/plain; charset=utf-8"
 
-    response_body = json.dumps(build_status_payload(config, metrics)).encode("utf-8")
+    response_body = json.dumps(
+        build_status_payload(config, metrics, registration_status=registration_status)
+    ).encode("utf-8")
     return 200, response_body, "application/json; charset=utf-8"
 
 
@@ -157,12 +163,17 @@ class HTTPIngressHandler(BaseHTTPRequestHandler):
     logger = None
     app_config = None
     metrics = None
+    status_provider = None
 
     def do_GET(self):
+        registration_status = None
+        if self.status_provider is not None:
+            registration_status = self.status_provider()
         status_code, response_body, content_type = handle_status_request(
             self.path,
             self.app_config,
             self.metrics,
+            registration_status=registration_status,
         )
         self.__write_response(status_code, response_body, content_type)
 
@@ -193,10 +204,11 @@ class HTTPIngressHandler(BaseHTTPRequestHandler):
 
 
 class HTTPIngressServer:
-    def __init__(self, event_router, logger, app_config) -> None:
+    def __init__(self, event_router, logger, app_config, status_provider=None) -> None:
         self.event_router = event_router
         self.logger = logger
         self.app_config = app_config
+        self.status_provider = status_provider
         self.metrics = HTTPIngressMetrics()
         self.server = None
         self.thread = None
@@ -210,6 +222,7 @@ class HTTPIngressServer:
         handler.logger = self.logger
         handler.app_config = self.app_config
         handler.metrics = self.metrics
+        handler.status_provider = self.status_provider
 
         self.server = ThreadingHTTPServer(
             (self.app_config.http_ingress_host, self.app_config.http_ingress_port),
