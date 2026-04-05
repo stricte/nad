@@ -1,10 +1,9 @@
 import time
 import paho.mqtt.client as mqtt
+from event_router import EventRouter
 from mqtt_handler import MQTTHandler
 from logger import setup_logger
-from translator import translate_command
 from config import config
-from datetime import datetime
 from serial_device import SerialDevice
 from processor import Processor
 
@@ -14,7 +13,8 @@ def run_script():
 
     serial = SerialDevice(config.serial, logger)
     processor = Processor(serial, logger)
-    handler = MQTTHandler(processor, logger)
+    event_router = EventRouter(processor, logger)
+    handler = MQTTHandler(event_router, logger)
 
     client = mqtt.Client()
     client.on_connect = handler.on_connect
