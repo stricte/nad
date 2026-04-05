@@ -5,8 +5,11 @@ from threading import Thread
 
 STATUS_TO_EVENT = {
     "play": "playing",
+    "playing": "playing",
     "pause": "paused",
+    "paused": "paused",
     "stop": "stopped",
+    "stopped": "stopped",
 }
 
 
@@ -14,16 +17,68 @@ def map_volumio_status_to_event(payload):
     if not isinstance(payload, dict):
         return None
 
-    raw_status = payload.get("status") or payload.get("state") or payload.get("playerState")
+    raw_status = extract_raw_status(payload)
     if not isinstance(raw_status, str):
         return None
 
     return STATUS_TO_EVENT.get(raw_status.lower())
 
 
+def extract_raw_status(payload):
+    return payload.get("status") or payload.get("state") or payload.get("playerState")
+
+
+def iter_notification_payloads(payload):
+    if isinstance(payload, dict):
+        raw_status = extract_raw_status(payload)
+        if isinstance(raw_status, str):
+            yield payload
+
+        for key in ("notification", "payload", "data"):
+            nested_payload = payload.get(key)
+            if isinstance(nested_payload, dict):
+                yield from iter_notification_payloads(nested_payload)
+
+        for key in ("notifications", "events", "items"):
+            nested_payloads = payload.get(key)
+            if isinstance(nested_payloads, list):
+                yield from iter_notification_payloads(nested_payloads)
+        return
+
+    if isinstance(payload, list):
+        for item in payload:
+            yield from iter_notification_payloads(item)
+
+
+def extract_notification_events(payload):
+    notification_events = []
+
+    for notification_payload in iter_notification_payloads(payload):
+        mapped_event = map_volumio_status_to_event(notification_payload)
+        if mapped_event is None:
+            continue
+
+        notification_events.append(
+            (
+                mapped_event,
+                extract_raw_status(notification_payload),
+                notification_payload,
+            )
+        )
+
+    return notification_events
+
+
 def handle_notification_request(path, body, event_router, logger, config):
     if path != config.http_ingress_path:
         return 404, b"Not Found"
+
+    if len(body) > config.http_ingress_max_body_bytes:
+        logger.warning(
+            "Dropping oversized HTTP ingress payload "
+            f"bytes={len(body)} limit={config.http_ingress_max_body_bytes}"
+        )
+        return 413, b"Payload Too Large"
 
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -31,23 +86,24 @@ def handle_notification_request(path, body, event_router, logger, config):
         logger.warning("Dropping invalid HTTP ingress payload")
         return 400, b"Invalid JSON payload"
 
-    mapped_event = map_volumio_status_to_event(payload)
-    if mapped_event is None:
+    notification_events = extract_notification_events(payload)
+    if len(notification_events) == 0:
         logger.warning(f"Dropping unsupported HTTP ingress payload payload={payload}")
         return 202, b"Ignored"
 
-    logger.info(
-        "Accepted HTTP ingress event "
-        f"source=volumio_http raw_status={payload.get('status') or payload.get('state') or payload.get('playerState')} "
-        f"mapped_event={mapped_event} shadow_mode={config.http_ingress_shadow_mode}"
-    )
-
-    if not config.http_ingress_shadow_mode:
-        event_router.route_event(
-            mapped_event,
-            source="volumio_http",
-            raw_payload=payload,
+    for mapped_event, raw_status, notification_payload in notification_events:
+        logger.info(
+            "Accepted HTTP ingress event "
+            f"source=volumio_http raw_status={raw_status} "
+            f"mapped_event={mapped_event} shadow_mode={config.http_ingress_shadow_mode}"
         )
+
+        if not config.http_ingress_shadow_mode:
+            event_router.route_event(
+                mapped_event,
+                source="volumio_http",
+                raw_payload=notification_payload,
+            )
 
     return 202, b"Accepted"
 
@@ -59,7 +115,9 @@ class HTTPIngressHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length)
+        body = self.rfile.read(
+            min(content_length, self.app_config.http_ingress_max_body_bytes + 1)
+        )
         status_code, response_body = handle_notification_request(
             self.path,
             body,
