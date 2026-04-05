@@ -7,6 +7,7 @@ from logger import setup_logger
 from config import config
 from serial_device import SerialDevice
 from processor import Processor
+from volumio_registration import VolumioRegistrationClient
 
 
 def run_script():
@@ -21,6 +22,8 @@ def run_script():
     )
     http_ingress = HTTPIngressServer(event_router, logger, config)
     http_ingress.start()
+    volumio_registration = VolumioRegistrationClient(logger, config)
+    volumio_registration.register_callback()
 
     client = mqtt.Client()
     if config.mqtt_ingress_enabled:
