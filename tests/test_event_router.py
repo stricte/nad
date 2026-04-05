@@ -225,6 +225,40 @@ class EventRouterTests(unittest.TestCase):
             logger.messages,
         )
 
+    def test_duplicate_from_higher_priority_source_refreshes_precedence_window(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            dedupe_window_seconds=30,
+            source_priorities={"mqtt": 100, "volumio_http": 200},
+            source_precedence_window_seconds=10,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        duplicate_received_at = first_received_at + timedelta(seconds=8)
+        lower_priority_received_at = first_received_at + timedelta(seconds=12)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        duplicate = EventEnvelope.create("playing", source="volumio_http", received_at=duplicate_received_at)
+        lower_priority = EventEnvelope.create("playing", source="mqtt", received_at=lower_priority_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        duplicate_routed = router.route_event(duplicate, source="volumio_http")
+        lower_priority_routed = router.route_event(lower_priority, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertFalse(duplicate_routed)
+        self.assertFalse(lower_priority_routed)
+        self.assertEqual(processor.processed_events, ["playing"])
+        self.assertIn(
+            (
+                "info",
+                "Dropping lower-priority event source=mqtt event=playing precedence_blocked=true",
+            ),
+            logger.messages,
+        )
+
     def test_allows_higher_priority_source_to_override_lower_priority_source(self):
         processor = FakeProcessor()
         logger = FakeLogger()
