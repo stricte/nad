@@ -1,6 +1,7 @@
 import time
 import paho.mqtt.client as mqtt
 from event_router import EventRouter
+from http_ingress import HTTPIngressServer
 from mqtt_handler import MQTTHandler
 from logger import setup_logger
 from config import config
@@ -14,18 +15,22 @@ def run_script():
     serial = SerialDevice(config.serial, logger)
     processor = Processor(serial, logger)
     event_router = EventRouter(processor, logger)
-    handler = MQTTHandler(event_router, logger)
+    http_ingress = HTTPIngressServer(event_router, logger, config)
+    http_ingress.start()
 
     client = mqtt.Client()
-    client.on_connect = handler.on_connect
-    client.on_message = handler.on_message
-    client.reconnect_delay_set(min_delay=1, max_delay=120)
-    client.connect(config.broker_ip, config.broker_port)
-    client.subscribe(config.broker_topic)
+    if config.mqtt_ingress_enabled:
+        handler = MQTTHandler(event_router, logger)
+        client.on_connect = handler.on_connect
+        client.on_message = handler.on_message
+        client.reconnect_delay_set(min_delay=1, max_delay=120)
+        client.connect(config.broker_ip, config.broker_port)
+        client.subscribe(config.broker_topic)
 
     while True:
         try:
-            client.loop()
+            if config.mqtt_ingress_enabled:
+                client.loop()
             processor.process_postponed()
         except Exception as e:
             logger.error(f"An error occurred: {e}")
