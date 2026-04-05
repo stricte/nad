@@ -247,3 +247,9 @@ class HTTPIngressServer:
         self.server.server_close()
         self.server = None
         self.thread = None
+
+    def address(self):
+        if self.server is None:
+            return None
+
+        return self.server.server_address

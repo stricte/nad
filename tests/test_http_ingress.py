@@ -1,8 +1,11 @@
 import json
+import urllib.error
+import urllib.request
 import unittest
 from types import SimpleNamespace
 
 from http_ingress import (
+    HTTPIngressServer,
     HTTPIngressMetrics,
     build_status_payload,
     extract_notification_events,
@@ -239,3 +242,77 @@ class HTTPIngressTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HTTPIngressIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.logger = FakeLogger()
+        self.event_router = FakeEventRouter()
+        self.config = SimpleNamespace(
+            http_ingress_enabled=True,
+            http_ingress_path="/ingress/volumio/notifications",
+            http_ingress_status_path="/ingress/status",
+            http_ingress_shadow_mode=False,
+            http_ingress_host="127.0.0.1",
+            http_ingress_port=0,
+            http_ingress_max_body_bytes=1024,
+        )
+        self.registration_status = {"enabled": True, "failure_count": 0}
+        self.server = HTTPIngressServer(
+            self.event_router,
+            self.logger,
+            self.config,
+            status_provider=lambda: self.registration_status,
+        )
+        try:
+            self.server.start()
+        except PermissionError as exc:
+            self.skipTest(f"Socket binding is not permitted in this environment: {exc}")
+        server_address = self.server.address()
+        self.base_url = f"http://{server_address[0]}:{server_address[1]}"
+
+    def tearDown(self):
+        self.server.stop()
+
+    def test_status_endpoint_returns_json_payload(self):
+        with urllib.request.urlopen(f"{self.base_url}{self.config.http_ingress_status_path}", timeout=5) as response:
+            status_code = response.getcode()
+            payload = json.loads(response.read().decode("utf-8"))
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(payload["http_ingress_enabled"], True)
+        self.assertEqual(payload["http_ingress_status_path"], self.config.http_ingress_status_path)
+        self.assertEqual(payload["volumio_registration"], self.registration_status)
+
+    def test_notification_endpoint_routes_event(self):
+        payload = json.dumps({"status": "pause"}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}{self.config.http_ingress_path}",
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status_code = response.getcode()
+            response_body = response.read()
+
+        self.assertEqual(status_code, 202)
+        self.assertEqual(response_body, b"Accepted")
+        self.assertEqual(
+            self.event_router.routed_events,
+            [("paused", "volumio_http", {"status": "pause"})],
+        )
+
+    def test_notification_endpoint_rejects_invalid_json(self):
+        request = urllib.request.Request(
+            f"{self.base_url}{self.config.http_ingress_path}",
+            data=b"{",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(request, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
