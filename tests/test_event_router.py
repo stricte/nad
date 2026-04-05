@@ -129,6 +129,101 @@ class EventRouterTests(unittest.TestCase):
         self.assertTrue(second_routed)
         self.assertEqual(processor.processed_events, ["playing", "playing"])
 
+    def test_blocks_lower_priority_source_within_precedence_window(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            source_priorities={"mqtt": 100, "volumio_http": 200},
+            source_precedence_window_seconds=30,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=10)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        second = EventEnvelope.create("playing", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertFalse(second_routed)
+        self.assertEqual(processor.processed_events, ["playing"])
+        self.assertIn(
+            (
+                "info",
+                "Dropping lower-priority event source=mqtt event=playing precedence_blocked=true",
+            ),
+            logger.messages,
+        )
+
+    def test_allows_higher_priority_source_to_override_lower_priority_source(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            source_priorities={"mqtt": 100, "volumio_http": 200},
+            source_precedence_window_seconds=30,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=10)
+
+        first = EventEnvelope.create("playing", source="mqtt", received_at=first_received_at)
+        second = EventEnvelope.create("playing", source="volumio_http", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="mqtt")
+        second_routed = router.route_event(second, source="volumio_http")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "playing"])
+
+    def test_allows_lower_priority_source_after_precedence_window_expires(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            source_priorities={"mqtt": 100, "volumio_http": 200},
+            source_precedence_window_seconds=30,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=31)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        second = EventEnvelope.create("playing", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "playing"])
+
+    def test_does_not_block_different_event_name_with_precedence(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            source_priorities={"mqtt": 100, "volumio_http": 200},
+            source_precedence_window_seconds=30,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=10)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        second = EventEnvelope.create("paused", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "paused"])
+
 
 if __name__ == "__main__":
     unittest.main()
