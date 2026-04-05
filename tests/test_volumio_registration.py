@@ -217,6 +217,24 @@ class VolumioRegistrationManagerTests(unittest.TestCase):
         self.assertFalse(registered)
         self.assertEqual(client.calls, 0)
 
+    def test_returns_serializable_status(self):
+        client = FakeRegistrationClient([False])
+        manager = VolumioRegistrationManager(client, self.logger, self.config)
+        now = datetime(2026, 4, 5, 12, 0, 0)
+
+        manager.ensure_registration(now=now)
+
+        self.assertEqual(
+            manager.status(),
+            {
+                "enabled": True,
+                "failure_count": 1,
+                "last_success_at": None,
+                "last_failure_at": "2026-04-05T12:00:00",
+                "next_attempt_at": "2026-04-05T12:00:05",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

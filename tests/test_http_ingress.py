@@ -197,11 +197,19 @@ class HTTPIngressTests(unittest.TestCase):
     def test_returns_status_payload(self):
         self.metrics.accepted_requests = 2
         self.metrics.routed_events = 3
+        registration_status = {
+            "enabled": True,
+            "failure_count": 1,
+            "last_success_at": "2026-04-05T12:00:00",
+            "last_failure_at": None,
+            "next_attempt_at": "2026-04-05T13:00:00",
+        }
 
         status_code, response_body, content_type = handle_status_request(
             self.config.http_ingress_status_path,
             self.config,
             self.metrics,
+            registration_status=registration_status,
         )
 
         self.assertEqual(status_code, 200)
@@ -211,15 +219,22 @@ class HTTPIngressTests(unittest.TestCase):
         self.assertEqual(payload["http_ingress_status_path"], self.config.http_ingress_status_path)
         self.assertEqual(payload["metrics"]["accepted_requests"], 2)
         self.assertEqual(payload["metrics"]["routed_events"], 3)
+        self.assertEqual(payload["volumio_registration"], registration_status)
 
     def test_builds_status_payload(self):
         self.metrics.invalid_requests = 4
+        registration_status = {"enabled": False}
 
-        status_payload = build_status_payload(self.config, self.metrics)
+        status_payload = build_status_payload(
+            self.config,
+            self.metrics,
+            registration_status=registration_status,
+        )
 
         self.assertEqual(status_payload["http_ingress_enabled"], True)
         self.assertEqual(status_payload["http_ingress_shadow_mode"], True)
         self.assertEqual(status_payload["metrics"]["invalid_requests"], 4)
+        self.assertEqual(status_payload["volumio_registration"], registration_status)
 
 
 if __name__ == "__main__":

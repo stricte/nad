@@ -101,3 +101,18 @@ class VolumioRegistrationManager:
             f"next_attempt_at={self.next_attempt_at.isoformat()}"
         )
         return False
+
+    def status(self):
+        return {
+            "enabled": self.config.volumio_registration_enabled,
+            "failure_count": self.failure_count,
+            "last_success_at": self.__format_datetime(self.last_success_at),
+            "last_failure_at": self.__format_datetime(self.last_failure_at),
+            "next_attempt_at": self.__format_datetime(self.next_attempt_at),
+        }
+
+    def __format_datetime(self, value):
+        if value is None:
+            return None
+
+        return value.isoformat()
