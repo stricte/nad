@@ -19,6 +19,9 @@ class AppConfig:
             "http://127.0.0.1:8080/ingress/volumio/notifications"
         )
         self.volumio_registration_timeout_seconds = 5
+        self.volumio_registration_refresh_interval_seconds = 3600
+        self.volumio_registration_retry_initial_delay_seconds = 5
+        self.volumio_registration_retry_max_delay_seconds = 300
         self.logger_name = "mqtt_receive"
         self.logger_path = "/var/log/nad/mqtt_receive.log"
         self.serial = "/dev/ttyUSB0"
