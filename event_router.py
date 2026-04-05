@@ -34,6 +34,7 @@ class EventRouter:
             return False
 
         if self.__is_duplicate(envelope):
+            self.__remember_source_owner(envelope)
             self.logger.info(
                 "Dropping duplicate event "
                 f"source={envelope.source} event={envelope.event_name} deduped=true"
