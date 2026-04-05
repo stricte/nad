@@ -222,7 +222,10 @@ class HTTPIngressServer:
         handler.logger = self.logger
         handler.app_config = self.app_config
         handler.metrics = self.metrics
-        handler.status_provider = self.status_provider
+        if self.status_provider is None:
+            handler.status_provider = None
+        else:
+            handler.status_provider = staticmethod(self.status_provider)
 
         self.server = ThreadingHTTPServer(
             (self.app_config.http_ingress_host, self.app_config.http_ingress_port),
