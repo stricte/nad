@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta
 
 from event_router import EventRouter
 from events import EventEnvelope
@@ -55,6 +56,78 @@ class EventRouterTests(unittest.TestCase):
 
         self.assertTrue(routed)
         self.assertEqual(processor.processed_events, ["paused"])
+
+    def test_dedupes_repeated_event_from_same_source_within_window(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(processor, logger, dedupe_window_seconds=5)
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=2)
+
+        first = EventEnvelope.create("playing", source="mqtt", received_at=first_received_at)
+        second = EventEnvelope.create("playing", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="mqtt")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertFalse(second_routed)
+        self.assertEqual(processor.processed_events, ["playing"])
+        self.assertIn(
+            ("info", "Dropping duplicate event source=mqtt event=playing deduped=true"),
+            logger.messages,
+        )
+
+    def test_does_not_dedupe_same_event_from_different_source(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(processor, logger, dedupe_window_seconds=5)
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=2)
+
+        first = EventEnvelope.create("playing", source="mqtt", received_at=first_received_at)
+        second = EventEnvelope.create("playing", source="volumio_http", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="mqtt")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "playing"])
+
+    def test_does_not_dedupe_different_event_name(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(processor, logger, dedupe_window_seconds=5)
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=2)
+
+        first = EventEnvelope.create("playing", source="mqtt", received_at=first_received_at)
+        second = EventEnvelope.create("paused", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="mqtt")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "paused"])
+
+    def test_routes_event_again_after_dedupe_window_expires(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(processor, logger, dedupe_window_seconds=5)
+        first_received_at = datetime(2026, 4, 5, 12, 0, 0)
+        second_received_at = first_received_at + timedelta(seconds=6)
+
+        first = EventEnvelope.create("playing", source="mqtt", received_at=first_received_at)
+        second = EventEnvelope.create("playing", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="mqtt")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "playing"])
 
 
 if __name__ == "__main__":
