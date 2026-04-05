@@ -69,27 +69,69 @@ def extract_notification_events(payload):
     return notification_events
 
 
-def handle_notification_request(path, body, event_router, logger, config):
+class HTTPIngressMetrics:
+    def __init__(self) -> None:
+        self.accepted_requests = 0
+        self.ignored_requests = 0
+        self.invalid_requests = 0
+        self.oversized_requests = 0
+        self.routed_events = 0
+
+    def as_dict(self):
+        return {
+            "accepted_requests": self.accepted_requests,
+            "ignored_requests": self.ignored_requests,
+            "invalid_requests": self.invalid_requests,
+            "oversized_requests": self.oversized_requests,
+            "routed_events": self.routed_events,
+        }
+
+
+def build_status_payload(config, metrics):
+    return {
+        "http_ingress_enabled": config.http_ingress_enabled,
+        "http_ingress_shadow_mode": config.http_ingress_shadow_mode,
+        "http_ingress_host": config.http_ingress_host,
+        "http_ingress_port": config.http_ingress_port,
+        "http_ingress_path": config.http_ingress_path,
+        "http_ingress_status_path": config.http_ingress_status_path,
+        "http_ingress_max_body_bytes": config.http_ingress_max_body_bytes,
+        "metrics": metrics.as_dict(),
+    }
+
+
+def handle_status_request(path, config, metrics):
+    if path != config.http_ingress_status_path:
+        return 404, b"Not Found", "text/plain; charset=utf-8"
+
+    response_body = json.dumps(build_status_payload(config, metrics)).encode("utf-8")
+    return 200, response_body, "application/json; charset=utf-8"
+
+
+def handle_notification_request(path, body, event_router, logger, config, metrics):
     if path != config.http_ingress_path:
-        return 404, b"Not Found"
+        return 404, b"Not Found", "text/plain; charset=utf-8"
 
     if len(body) > config.http_ingress_max_body_bytes:
         logger.warning(
             "Dropping oversized HTTP ingress payload "
             f"bytes={len(body)} limit={config.http_ingress_max_body_bytes}"
         )
-        return 413, b"Payload Too Large"
+        metrics.oversized_requests += 1
+        return 413, b"Payload Too Large", "text/plain; charset=utf-8"
 
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         logger.warning("Dropping invalid HTTP ingress payload")
-        return 400, b"Invalid JSON payload"
+        metrics.invalid_requests += 1
+        return 400, b"Invalid JSON payload", "text/plain; charset=utf-8"
 
     notification_events = extract_notification_events(payload)
     if len(notification_events) == 0:
         logger.warning(f"Dropping unsupported HTTP ingress payload payload={payload}")
-        return 202, b"Ignored"
+        metrics.ignored_requests += 1
+        return 202, b"Ignored", "text/plain; charset=utf-8"
 
     for mapped_event, raw_status, notification_payload in notification_events:
         logger.info(
@@ -104,30 +146,44 @@ def handle_notification_request(path, body, event_router, logger, config):
                 source="volumio_http",
                 raw_payload=notification_payload,
             )
+            metrics.routed_events += 1
 
-    return 202, b"Accepted"
+    metrics.accepted_requests += 1
+    return 202, b"Accepted", "text/plain; charset=utf-8"
 
 
 class HTTPIngressHandler(BaseHTTPRequestHandler):
     event_router = None
     logger = None
     app_config = None
+    metrics = None
+
+    def do_GET(self):
+        status_code, response_body, content_type = handle_status_request(
+            self.path,
+            self.app_config,
+            self.metrics,
+        )
+        self.__write_response(status_code, response_body, content_type)
 
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(
             min(content_length, self.app_config.http_ingress_max_body_bytes + 1)
         )
-        status_code, response_body = handle_notification_request(
+        status_code, response_body, content_type = handle_notification_request(
             self.path,
             body,
             self.event_router,
             self.logger,
             self.app_config,
+            self.metrics,
         )
+        self.__write_response(status_code, response_body, content_type)
 
+    def __write_response(self, status_code, response_body, content_type):
         self.send_response(status_code)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
         self.wfile.write(response_body)
@@ -141,6 +197,7 @@ class HTTPIngressServer:
         self.event_router = event_router
         self.logger = logger
         self.app_config = app_config
+        self.metrics = HTTPIngressMetrics()
         self.server = None
         self.thread = None
 
@@ -152,6 +209,7 @@ class HTTPIngressServer:
         handler.event_router = self.event_router
         handler.logger = self.logger
         handler.app_config = self.app_config
+        handler.metrics = self.metrics
 
         self.server = ThreadingHTTPServer(
             (self.app_config.http_ingress_host, self.app_config.http_ingress_port),
@@ -164,6 +222,7 @@ class HTTPIngressServer:
             f"host={self.app_config.http_ingress_host} "
             f"port={self.app_config.http_ingress_port} "
             f"path={self.app_config.http_ingress_path} "
+            f"status_path={self.app_config.http_ingress_status_path} "
             f"shadow_mode={self.app_config.http_ingress_shadow_mode}"
         )
 
