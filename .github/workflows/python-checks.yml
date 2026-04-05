@@ -33,7 +33,7 @@ jobs:
       - name: Run unit tests
         run: |
           if [ -d tests ] && find tests -type f -name 'test*.py' | grep -q .; then
-            python -m unittest discover -v
+            python -m unittest discover -s tests -v
           else
             echo "No Python test files found; skipping unittest discovery."
           fi
