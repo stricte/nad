@@ -9,15 +9,18 @@ class EventRouter:
         processor,
         logger,
         dedupe_window_seconds: int = 0,
+        stale_event_window_seconds: int = 0,
         source_priorities=None,
         source_precedence_window_seconds: int = 0,
     ) -> None:
         self.processor = processor
         self.logger = logger
         self.dedupe_window_seconds = dedupe_window_seconds
+        self.stale_event_window_seconds = stale_event_window_seconds
         self.source_priorities = source_priorities or {}
         self.source_precedence_window_seconds = source_precedence_window_seconds
         self._recent_events = {}
+        self._latest_source_timestamps = {}
         self._source_owners = {}
 
     def route_event(self, event, source: str, raw_payload=None) -> bool:
@@ -37,6 +40,13 @@ class EventRouter:
             )
             return False
 
+        if self.__is_stale(envelope):
+            self.logger.info(
+                "Dropping stale event "
+                f"source={envelope.source} event={envelope.event_name} stale=true"
+            )
+            return False
+
         if self.__is_blocked_by_higher_priority_source(envelope):
             self.logger.info(
                 "Dropping lower-priority event "
@@ -49,6 +59,7 @@ class EventRouter:
             f"source={envelope.source} event={envelope.event_name}"
         )
         self.__remember_event(envelope)
+        self.__remember_latest_source_timestamp(envelope)
         self.__remember_source_owner(envelope)
         self.processor.process(envelope.event_name)
         return True
@@ -80,6 +91,25 @@ class EventRouter:
             for event_key, event_received_at in self._recent_events.items()
             if event_received_at.timestamp() >= cutoff
         }
+
+    def __is_stale(self, envelope) -> bool:
+        if self.stale_event_window_seconds <= 0:
+            return False
+
+        latest_received_at = self._latest_source_timestamps.get(envelope.source)
+        if latest_received_at is None:
+            return False
+
+        stale_cutoff = latest_received_at.timestamp() - self.stale_event_window_seconds
+        return envelope.received_at.timestamp() < stale_cutoff
+
+    def __remember_latest_source_timestamp(self, envelope) -> None:
+        if self.stale_event_window_seconds <= 0:
+            return
+
+        latest_received_at = self._latest_source_timestamps.get(envelope.source)
+        if latest_received_at is None or envelope.received_at > latest_received_at:
+            self._latest_source_timestamps[envelope.source] = envelope.received_at
 
     def __is_blocked_by_higher_priority_source(self, envelope) -> bool:
         if self.source_precedence_window_seconds <= 0:

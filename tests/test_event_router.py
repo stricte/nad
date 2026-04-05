@@ -129,6 +129,73 @@ class EventRouterTests(unittest.TestCase):
         self.assertTrue(second_routed)
         self.assertEqual(processor.processed_events, ["playing", "playing"])
 
+    def test_drops_stale_event_from_same_source(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            stale_event_window_seconds=10,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 20)
+        second_received_at = datetime(2026, 4, 5, 12, 0, 0)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        second = EventEnvelope.create("paused", source="volumio_http", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        second_routed = router.route_event(second, source="volumio_http")
+
+        self.assertTrue(first_routed)
+        self.assertFalse(second_routed)
+        self.assertEqual(processor.processed_events, ["playing"])
+        self.assertIn(
+            ("info", "Dropping stale event source=volumio_http event=paused stale=true"),
+            logger.messages,
+        )
+
+    def test_allows_out_of_order_event_within_stale_tolerance(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            stale_event_window_seconds=10,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 20)
+        second_received_at = datetime(2026, 4, 5, 12, 0, 15)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        second = EventEnvelope.create("paused", source="volumio_http", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        second_routed = router.route_event(second, source="volumio_http")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "paused"])
+
+    def test_does_not_share_stale_tracking_between_sources(self):
+        processor = FakeProcessor()
+        logger = FakeLogger()
+        router = EventRouter(
+            processor,
+            logger,
+            stale_event_window_seconds=10,
+        )
+        first_received_at = datetime(2026, 4, 5, 12, 0, 20)
+        second_received_at = datetime(2026, 4, 5, 12, 0, 0)
+
+        first = EventEnvelope.create("playing", source="volumio_http", received_at=first_received_at)
+        second = EventEnvelope.create("paused", source="mqtt", received_at=second_received_at)
+
+        first_routed = router.route_event(first, source="volumio_http")
+        second_routed = router.route_event(second, source="mqtt")
+
+        self.assertTrue(first_routed)
+        self.assertTrue(second_routed)
+        self.assertEqual(processor.processed_events, ["playing", "paused"])
+
     def test_blocks_lower_priority_source_within_precedence_window(self):
         processor = FakeProcessor()
         logger = FakeLogger()

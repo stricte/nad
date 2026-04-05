@@ -4,6 +4,7 @@ class AppConfig:
         self.broker_port = 1883
         self.broker_topic = "nad"
         self.event_dedupe_window_seconds = 0
+        self.stale_event_window_seconds = 0
         self.source_precedence_window_seconds = 0
         self.source_priorities = {
             "mqtt": 100,
