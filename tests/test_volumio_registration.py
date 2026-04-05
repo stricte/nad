@@ -1,8 +1,9 @@
 import json
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from volumio_registration import VolumioRegistrationClient
+from volumio_registration import VolumioRegistrationClient, VolumioRegistrationManager
 
 
 class FakeLogger:
@@ -43,6 +44,9 @@ class VolumioRegistrationClientTests(unittest.TestCase):
             volumio_registration_path="/api/v1/pushNotificationUrls",
             volumio_notification_callback_url="http://nad.local:8080/ingress/volumio/notifications",
             volumio_registration_timeout_seconds=5,
+            volumio_registration_refresh_interval_seconds=3600,
+            volumio_registration_retry_initial_delay_seconds=5,
+            volumio_registration_retry_max_delay_seconds=300,
         )
 
     def test_skips_registration_when_disabled(self):
@@ -115,6 +119,103 @@ class VolumioRegistrationClientTests(unittest.TestCase):
         self.assertTrue(
             any(level == "warning" and "connection refused" in message for level, message in self.logger.messages)
         )
+
+
+class FakeRegistrationClient:
+    def __init__(self, results) -> None:
+        self.results = list(results)
+        self.calls = 0
+
+    def register_callback(self):
+        self.calls += 1
+        if len(self.results) == 0:
+            return False
+        return self.results.pop(0)
+
+
+class VolumioRegistrationManagerTests(unittest.TestCase):
+    def setUp(self):
+        self.logger = FakeLogger()
+        self.config = SimpleNamespace(
+            volumio_registration_enabled=True,
+            volumio_registration_refresh_interval_seconds=3600,
+            volumio_registration_retry_initial_delay_seconds=5,
+            volumio_registration_retry_max_delay_seconds=300,
+        )
+
+    def test_schedules_refresh_after_success(self):
+        client = FakeRegistrationClient([True])
+        manager = VolumioRegistrationManager(client, self.logger, self.config)
+        now = datetime(2026, 4, 5, 12, 0, 0)
+
+        registered = manager.ensure_registration(now=now)
+
+        self.assertTrue(registered)
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(manager.last_success_at, now)
+        self.assertEqual(
+            manager.next_attempt_at,
+            now + timedelta(seconds=3600),
+        )
+
+    def test_skips_attempt_before_next_retry(self):
+        client = FakeRegistrationClient([False])
+        manager = VolumioRegistrationManager(client, self.logger, self.config)
+        now = datetime(2026, 4, 5, 12, 0, 0)
+        manager.ensure_registration(now=now)
+
+        second_attempt = manager.ensure_registration(now=now + timedelta(seconds=4))
+
+        self.assertFalse(second_attempt)
+        self.assertEqual(client.calls, 1)
+
+    def test_retries_after_backoff_delay(self):
+        client = FakeRegistrationClient([False, True])
+        manager = VolumioRegistrationManager(client, self.logger, self.config)
+        now = datetime(2026, 4, 5, 12, 0, 0)
+        manager.ensure_registration(now=now)
+
+        retried = manager.ensure_registration(now=now + timedelta(seconds=5))
+
+        self.assertTrue(retried)
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(manager.failure_count, 0)
+
+    def test_increases_backoff_until_max(self):
+        client = FakeRegistrationClient([False, False, False, False, False, False, False])
+        manager = VolumioRegistrationManager(client, self.logger, self.config)
+        now = datetime(2026, 4, 5, 12, 0, 0)
+
+        manager.ensure_registration(now=now)
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=5))
+
+        manager.ensure_registration(now=now + timedelta(seconds=5))
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=15))
+
+        manager.ensure_registration(now=now + timedelta(seconds=15))
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=35))
+
+        manager.ensure_registration(now=now + timedelta(seconds=35))
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=75))
+
+        manager.ensure_registration(now=now + timedelta(seconds=75))
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=155))
+
+        manager.ensure_registration(now=now + timedelta(seconds=155))
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=315))
+
+        manager.ensure_registration(now=now + timedelta(seconds=315))
+        self.assertEqual(manager.next_attempt_at, now + timedelta(seconds=615))
+
+    def test_skips_when_registration_disabled(self):
+        self.config.volumio_registration_enabled = False
+        client = FakeRegistrationClient([True])
+        manager = VolumioRegistrationManager(client, self.logger, self.config)
+
+        registered = manager.ensure_registration(now=datetime(2026, 4, 5, 12, 0, 0))
+
+        self.assertFalse(registered)
+        self.assertEqual(client.calls, 0)
 
 
 if __name__ == "__main__":
