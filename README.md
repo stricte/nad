@@ -21,6 +21,8 @@ The preferred deployment on a Raspberry Pi running Volumio is:
 - `http_ingress.py`: Volumio notification endpoint and status endpoint
 - `volumio_registration.py`: Volumio callback registration and refresh logic
 - `nad_receive.service`: systemd unit template for the receiver service
+- `examples/config.legacy_mqtt.py`: config example that mirrors the legacy MQTT/librespot deployment
+- `examples/config.volumio_localhost.py`: config example for a single-host Volumio deployment
 - `scripts/install_raspberry_pi.sh`: installation/bootstrap script for Volumio or Debian on Raspberry Pi
 - `docs/raspberry-pi-volumio.md`: full deployment and operations guide
 
@@ -30,12 +32,23 @@ On the Raspberry Pi:
 
 ```bash
 sudo ./scripts/install_raspberry_pi.sh
-sudo nano /opt/nad/config.py
+sudo cp /opt/nad/examples/config.volumio_localhost.py /opt/nad/config.py
 sudo systemctl restart nad-receive.service
 sudo systemctl status nad-receive.service
 ```
 
 Then follow the deployment guide in [docs/raspberry-pi-volumio.md](/home/stricte/nad/docs/raspberry-pi-volumio.md).
+
+**Config Examples**
+
+Copy one of these as your starting point:
+
+```bash
+sudo cp /opt/nad/examples/config.legacy_mqtt.py /opt/nad/config.py
+sudo cp /opt/nad/examples/config.volumio_localhost.py /opt/nad/config.py
+```
+
+Then edit `/opt/nad/config.py` only for machine-specific values like `serial`.
 
 **Recommended Config For Volumio**
 
