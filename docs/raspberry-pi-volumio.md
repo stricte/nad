@@ -56,38 +56,33 @@ The installer does not overwrite your runtime configuration if `/opt/nad/config.
 
 ## Configure For Volumio
 
-Edit the installed config:
+Copy the Volumio example config:
 
 ```bash
+sudo cp /opt/nad/examples/config.volumio_localhost.py /opt/nad/config.py
 sudo nano /opt/nad/config.py
 ```
 
-Recommended starting values:
+If you want the legacy MQTT/librespot setup instead, use:
 
-```python
-self.mqtt_ingress_enabled = False
-self.http_ingress_enabled = True
-self.http_ingress_shadow_mode = True
-self.http_ingress_host = "127.0.0.1"
-self.http_ingress_port = 8080
-self.http_ingress_path = "/ingress/volumio/notifications"
-self.http_ingress_status_path = "/ingress/status"
-
-self.volumio_registration_enabled = True
-self.volumio_base_url = "http://127.0.0.1"
-self.volumio_registration_path = "/api/v1/pushNotificationUrls"
-self.volumio_notification_callback_url = "http://127.0.0.1:8080/ingress/volumio/notifications"
+```bash
+sudo cp /opt/nad/examples/config.legacy_mqtt.py /opt/nad/config.py
 ```
 
-Optional routing safeguards:
+For the Volumio example, the main value you will usually need to adjust is:
 
 ```python
-self.event_dedupe_window_seconds = 2
-self.source_precedence_window_seconds = 10
-self.stale_event_window_seconds = 30
+self.serial = "/dev/ttyUSB0"
 ```
 
-Those values are conservative defaults for mixed-source setups. If you run only Volumio HTTP ingress, they can remain `0` until needed.
+The Volumio example already sets:
+
+- `mqtt_ingress_enabled = False`
+- `http_ingress_enabled = True`
+- `http_ingress_shadow_mode = True`
+- `volumio_registration_enabled = True`
+- `volumio_base_url = "http://127.0.0.1"`
+- `volumio_notification_callback_url = "http://127.0.0.1:8080/ingress/volumio/notifications"`
 
 ## Start And Inspect
 
