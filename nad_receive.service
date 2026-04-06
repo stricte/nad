@@ -1,13 +1,18 @@
 [Unit]
-Description=MQTT Receive Daemon for NAD
-After=network.target
+Description=NAD Receiver Service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=nad
+Group=nad
+SupplementaryGroups=dialout
 WorkingDirectory=/opt/nad
-ExecStart=/opt/nad/nad/bin/python /opt/nad/receiver.py
+ExecStart=/opt/nad/venv/bin/python /opt/nad/receiver.py
 Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

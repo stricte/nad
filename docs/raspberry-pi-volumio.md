@@ -1,0 +1,270 @@
+# Raspberry Pi Installation On Volumio
+
+This guide installs the NAD automation bridge on a Raspberry Pi running Volumio OS or another Debian-based system.
+
+## Goal
+
+The recommended topology on Volumio is:
+
+- Volumio runs on the Raspberry Pi
+- this project runs on the same Raspberry Pi as a systemd service
+- the receiver listens on `127.0.0.1:8080`
+- Volumio sends playback notifications to the local HTTP ingress
+- the receiver translates those notifications into NAD RS232 commands
+
+This avoids depending on the older librespot `PLAYER_EVENT` hook and keeps Volumio as the primary event producer.
+
+## Hardware Assumptions
+
+- Raspberry Pi running Volumio or Debian
+- NAD amplifier connected over RS232
+- working USB-to-RS232 adapter, usually exposed as `/dev/ttyUSB0`
+- network access from the Pi to itself and, if needed, to an MQTT broker
+
+## Before Installing
+
+Confirm the serial adapter path:
+
+```bash
+ls -l /dev/ttyUSB*
+```
+
+If the adapter is not `/dev/ttyUSB0`, update `self.serial` in `/opt/nad/config.py` after installation.
+
+If you want to use the legacy MQTT/librespot path instead of Volumio HTTP ingress, keep a reachable MQTT broker ready and do not enable Volumio registration.
+
+## Install
+
+From the checked-out repository:
+
+```bash
+sudo ./scripts/install_raspberry_pi.sh
+```
+
+The installer:
+
+- creates a dedicated system user `nad`
+- adds `nad` to the `dialout` group for serial access
+- installs OS packages required for Python and serial/MQTT operation
+- deploys the app into `/opt/nad`
+- creates a virtual environment in `/opt/nad/venv`
+- installs Python dependencies into that virtual environment
+- installs `nad-receive.service`
+- enables the service in systemd
+
+The installer does not overwrite your runtime configuration if `/opt/nad/config.py` already exists.
+
+## Configure For Volumio
+
+Edit the installed config:
+
+```bash
+sudo nano /opt/nad/config.py
+```
+
+Recommended starting values:
+
+```python
+self.mqtt_ingress_enabled = False
+self.http_ingress_enabled = True
+self.http_ingress_shadow_mode = True
+self.http_ingress_host = "127.0.0.1"
+self.http_ingress_port = 8080
+self.http_ingress_path = "/ingress/volumio/notifications"
+self.http_ingress_status_path = "/ingress/status"
+
+self.volumio_registration_enabled = True
+self.volumio_base_url = "http://127.0.0.1"
+self.volumio_registration_path = "/api/v1/pushNotificationUrls"
+self.volumio_notification_callback_url = "http://127.0.0.1:8080/ingress/volumio/notifications"
+```
+
+Optional routing safeguards:
+
+```python
+self.event_dedupe_window_seconds = 2
+self.source_precedence_window_seconds = 10
+self.stale_event_window_seconds = 30
+```
+
+Those values are conservative defaults for mixed-source setups. If you run only Volumio HTTP ingress, they can remain `0` until needed.
+
+## Start And Inspect
+
+Restart the service after config changes:
+
+```bash
+sudo systemctl restart nad-receive.service
+sudo systemctl status nad-receive.service
+```
+
+Follow logs:
+
+```bash
+journalctl -u nad-receive.service -f
+```
+
+Check the ingress status endpoint:
+
+```bash
+curl http://127.0.0.1:8080/ingress/status
+```
+
+You should see:
+
+- HTTP ingress enabled
+- the configured paths and port
+- request counters
+- Volumio registration health when registration is enabled
+
+## Shadow Mode Rollout
+
+Start with:
+
+```python
+self.http_ingress_shadow_mode = True
+```
+
+In shadow mode the service:
+
+- accepts Volumio notifications
+- parses and logs mapped events
+- does not forward them to the NAD command processor
+
+Use this to validate that the notification stream looks correct before allowing the service to control the amplifier.
+
+When the logs look correct, disable shadow mode:
+
+```python
+self.http_ingress_shadow_mode = False
+```
+
+Then restart the service:
+
+```bash
+sudo systemctl restart nad-receive.service
+```
+
+## Smoke Tests
+
+### 1. Service health
+
+```bash
+sudo systemctl is-active nad-receive.service
+curl http://127.0.0.1:8080/ingress/status
+```
+
+### 2. Manual HTTP notification
+
+With shadow mode disabled:
+
+```bash
+curl -i \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"play"}' \
+  http://127.0.0.1:8080/ingress/volumio/notifications
+```
+
+Expected result:
+
+- HTTP `202 Accepted`
+- service log shows an accepted Volumio event
+- NAD command processing follows according to the existing command logic
+
+### 3. Serial access
+
+Check that the service user can see the serial device:
+
+```bash
+id nad
+ls -l /dev/ttyUSB0
+```
+
+The `nad` user should be in the `dialout` group.
+
+### 4. Registration health
+
+If `volumio_registration_enabled = True`, inspect:
+
+```bash
+curl http://127.0.0.1:8080/ingress/status
+```
+
+Look for:
+
+- `enabled: true`
+- `last_success_at`
+- `next_attempt_at`
+- low or zero `failure_count`
+
+## Legacy MQTT/librespot Mode
+
+If you need the old event flow instead:
+
+1. Set `self.mqtt_ingress_enabled = True`
+2. Set `self.http_ingress_enabled = False`
+3. Ensure `mosquitto` or another broker is available
+4. Configure librespot:
+
+```bash
+LIBRESPOT_ONEVENT="/opt/nad/venv/bin/python /opt/nad/sender.py"
+```
+
+The sender publishes only:
+
+- `started`
+- `playing`
+- `paused`
+- `stopped`
+
+## Service Management
+
+Useful commands:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable nad-receive.service
+sudo systemctl restart nad-receive.service
+sudo systemctl stop nad-receive.service
+sudo systemctl status nad-receive.service
+journalctl -u nad-receive.service -n 200
+```
+
+## Updating The Deployment
+
+From a newer checkout of the repository:
+
+```bash
+sudo ./scripts/install_raspberry_pi.sh
+sudo systemctl restart nad-receive.service
+```
+
+The installer will redeploy the code and refresh the virtual environment. Existing `/opt/nad/config.py` is preserved.
+
+## Troubleshooting
+
+### HTTP ingress status endpoint is unreachable
+
+- confirm `self.http_ingress_enabled = True`
+- check `sudo systemctl status nad-receive.service`
+- check logs with `journalctl -u nad-receive.service -f`
+- confirm the bind address and port in `/opt/nad/config.py`
+
+### Volumio registration does not succeed
+
+- verify `self.volumio_base_url`
+- verify `self.volumio_notification_callback_url`
+- use the status endpoint to inspect `failure_count` and `last_failure_at`
+- if the callback URL is `127.0.0.1`, this only works when Volumio and this service are on the same device
+
+### Serial device permission denied
+
+- confirm the device path
+- confirm `nad` is in `dialout`
+- reconnect the USB serial adapter if the path changed
+
+### No NAD reaction after notifications arrive
+
+- verify `http_ingress_shadow_mode = False`
+- check logs for accepted events
+- test the translator path manually with `cli.py` if needed
