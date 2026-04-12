@@ -12,6 +12,11 @@ STATUS_TO_EVENT = {
     "stopped": "stopped",
 }
 
+IGNORED_NOTIFICATION_ITEMS = {
+    "queue",
+    "volume",
+}
+
 
 def map_volumio_status_to_event(payload):
     if not isinstance(payload, dict):
@@ -28,19 +33,45 @@ def extract_raw_status(payload):
     return payload.get("status") or payload.get("state") or payload.get("playerState")
 
 
+def should_extract_notification_payload(payload):
+    if not isinstance(payload, dict):
+        return False
+
+    raw_status = extract_raw_status(payload)
+    if not isinstance(raw_status, str):
+        return False
+
+    item = payload.get("item")
+    if isinstance(item, str) and item.lower() in IGNORED_NOTIFICATION_ITEMS:
+        return False
+
+    return True
+
+
+def should_recurse_into_nested_data(payload):
+    item = payload.get("item")
+    if not isinstance(item, str):
+        return True
+
+    return item.lower() not in IGNORED_NOTIFICATION_ITEMS
+
+
 def iter_notification_payloads(payload):
     if isinstance(payload, dict):
-        raw_status = extract_raw_status(payload)
-        if isinstance(raw_status, str):
+        if should_extract_notification_payload(payload):
             yield payload
 
         for key in ("notification", "payload", "data"):
             nested_payload = payload.get(key)
+            if key == "data" and not should_recurse_into_nested_data(payload):
+                continue
             if isinstance(nested_payload, dict):
                 yield from iter_notification_payloads(nested_payload)
 
         for key in ("notifications", "events", "items"):
             nested_payloads = payload.get(key)
+            if key == "items" and not should_recurse_into_nested_data(payload):
+                continue
             if isinstance(nested_payloads, list):
                 yield from iter_notification_payloads(nested_payloads)
         return

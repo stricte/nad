@@ -76,6 +76,34 @@ class HTTPIngressTests(unittest.TestCase):
             ],
         )
 
+    def test_ignores_volume_notification_with_nested_play_state(self):
+        notification_events = extract_notification_events(
+            {
+                "item": "volume",
+                "data": {
+                    "status": "play",
+                    "volume": 42,
+                },
+            }
+        )
+
+        self.assertEqual(notification_events, [])
+
+    def test_extracts_playback_event_from_push_state_notification(self):
+        notification_events = extract_notification_events(
+            {
+                "item": "pushState",
+                "data": {
+                    "status": "play",
+                },
+            }
+        )
+
+        self.assertEqual(
+            notification_events,
+            [("playing", "play", {"status": "play"})],
+        )
+
     def test_returns_404_for_unknown_path(self):
         status_code, response_body, _content_type = handle_notification_request(
             "/wrong-path",
