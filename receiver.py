@@ -1,8 +1,7 @@
 import time
-import paho.mqtt.client as mqtt
 from event_router import EventRouter
 from http_ingress import HTTPIngressServer
-from mqtt_handler import MQTTHandler
+from mqtt_ingress import MQTTIngress
 from logger import setup_logger
 from config import config
 from serial_device import SerialDevice
@@ -38,20 +37,12 @@ def run_script():
     http_ingress.start()
     volumio_registration_manager.ensure_registration()
 
-    client = None
-    if config.mqtt_ingress_enabled:
-        client = mqtt.Client()
-        handler = MQTTHandler(event_router, logger)
-        client.on_connect = handler.on_connect
-        client.on_message = handler.on_message
-        client.reconnect_delay_set(min_delay=1, max_delay=120)
-        client.connect(config.broker_ip, config.broker_port)
-        client.subscribe(config.broker_topic)
+    mqtt_ingress = MQTTIngress(event_router, logger, config)
+    mqtt_ingress.start()
 
     while True:
         try:
-            if config.mqtt_ingress_enabled:
-                client.loop()
+            mqtt_ingress.poll()
             volumio_registration_manager.ensure_registration()
             processor.process_postponed()
         except Exception as e:

@@ -1,23 +1,16 @@
 import importlib
 import sys
-import types
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 
 def import_receiver_with_fake_dependencies():
-    fake_client_module = types.SimpleNamespace(Client=lambda: None)
-    fake_mqtt_module = types.SimpleNamespace(client=fake_client_module)
-    fake_paho_module = types.SimpleNamespace(mqtt=fake_mqtt_module)
-    fake_serial_module = types.SimpleNamespace(Serial=lambda *args, **kwargs: None)
+    fake_serial_module = SimpleNamespace(Serial=lambda *args, **kwargs: None)
 
     with patch.dict(
         sys.modules,
         {
-            "paho": fake_paho_module,
-            "paho.mqtt": fake_mqtt_module,
-            "paho.mqtt.client": fake_client_module,
             "serial": fake_serial_module,
         },
     ):
@@ -87,8 +80,22 @@ class FakeHTTPIngressServer:
         return None
 
 
+class FakeMQTTIngress:
+    def __init__(self, event_router, logger, config):
+        self.event_router = event_router
+        self.logger = logger
+        self.config = config
+        self.started = False
+
+    def start(self):
+        self.started = True
+
+    def poll(self):
+        return None
+
+
 class ReceiverTests(unittest.TestCase):
-    def test_does_not_create_mqtt_client_when_mqtt_ingress_disabled(self):
+    def test_starts_without_constructing_transport_specific_clients_in_receiver(self):
         test_config = SimpleNamespace(
             serial="/dev/null",
             mqtt_ingress_enabled=False,
@@ -103,9 +110,6 @@ class ReceiverTests(unittest.TestCase):
             volumio_registration_enabled=False,
         )
 
-        def fail_if_called():
-            raise AssertionError("mqtt.Client should not be constructed")
-
         with patch.object(receiver, "config", test_config), patch.object(
             receiver, "setup_logger", return_value=FakeLogger()
         ), patch.object(receiver, "SerialDevice", FakeSerialDevice), patch.object(
@@ -116,7 +120,7 @@ class ReceiverTests(unittest.TestCase):
             receiver, "VolumioRegistrationManager", FakeRegistrationManager
         ), patch.object(
             receiver, "HTTPIngressServer", FakeHTTPIngressServer
-        ), patch.object(receiver.mqtt, "Client", side_effect=fail_if_called):
+        ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress):
             with self.assertRaises(KeyboardInterrupt):
                 receiver.run_script()
 
