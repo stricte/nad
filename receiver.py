@@ -38,8 +38,9 @@ def run_script():
     http_ingress.start()
     volumio_registration_manager.ensure_registration()
 
-    client = mqtt.Client()
+    client = None
     if config.mqtt_ingress_enabled:
+        client = mqtt.Client()
         handler = MQTTHandler(event_router, logger)
         client.on_connect = handler.on_connect
         client.on_message = handler.on_message
