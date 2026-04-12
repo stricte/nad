@@ -6,10 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
-def import_receiver_with_fake_paho():
+def import_receiver_with_fake_dependencies():
     fake_client_module = types.SimpleNamespace(Client=lambda: None)
     fake_mqtt_module = types.SimpleNamespace(client=fake_client_module)
     fake_paho_module = types.SimpleNamespace(mqtt=fake_mqtt_module)
+    fake_serial_module = types.SimpleNamespace(Serial=lambda *args, **kwargs: None)
 
     with patch.dict(
         sys.modules,
@@ -17,13 +18,14 @@ def import_receiver_with_fake_paho():
             "paho": fake_paho_module,
             "paho.mqtt": fake_mqtt_module,
             "paho.mqtt.client": fake_client_module,
+            "serial": fake_serial_module,
         },
     ):
         sys.modules.pop("receiver", None)
         return importlib.import_module("receiver")
 
 
-receiver = import_receiver_with_fake_paho()
+receiver = import_receiver_with_fake_dependencies()
 
 
 class FakeLogger:
