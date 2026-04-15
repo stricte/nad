@@ -66,6 +66,19 @@ class PostponedCommandSchedulerTests(unittest.TestCase):
         scheduler.stop()
         self.assertIsNone(scheduler.thread)
 
+    def test_start_and_stop_with_missing_interval_config(self):
+        scheduler = PostponedCommandScheduler(
+            FakeProcessor(),
+            FakeLogger(),
+            SimpleNamespace(),
+        )
+
+        scheduler.start()
+        self.assertIsNotNone(scheduler.thread)
+
+        scheduler.stop()
+        self.assertIsNone(scheduler.thread)
+
 
 if __name__ == "__main__":
     unittest.main()

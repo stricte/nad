@@ -1,5 +1,7 @@
 from threading import Event, Thread
 
+DEFAULT_POSTPONED_PROCESSOR_INTERVAL_SECONDS = 0.1
+
 
 class PostponedCommandScheduler:
     def __init__(self, processor, logger, config) -> None:
@@ -34,4 +36,11 @@ class PostponedCommandScheduler:
     def __run(self):
         while not self.stop_event.is_set():
             self.run_once()
-            self.stop_event.wait(self.config.postponed_processor_interval_seconds)
+            self.stop_event.wait(self.__interval_seconds())
+
+    def __interval_seconds(self):
+        return getattr(
+            self.config,
+            "postponed_processor_interval_seconds",
+            DEFAULT_POSTPONED_PROCESSOR_INTERVAL_SECONDS,
+        )
