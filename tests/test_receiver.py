@@ -35,13 +35,25 @@ class FakeSerialDevice:
         self.logger = logger
 
 
-class FakeProcessor:
+class StoppingProcessor:
     def __init__(self, serial, logger):
         self.serial = serial
         self.logger = logger
 
     def process_postponed(self):
         raise KeyboardInterrupt()
+
+
+class OnePassProcessor:
+    def __init__(self, serial, logger):
+        self.serial = serial
+        self.logger = logger
+        self.calls = 0
+
+    def process_postponed(self):
+        self.calls += 1
+        if self.calls > 1:
+            raise KeyboardInterrupt()
 
 
 class FakeEventRouter:
@@ -90,7 +102,7 @@ class FakeMQTTIngress:
     def start(self):
         self.started = True
 
-    def poll(self):
+    def stop(self):
         return None
 
 
@@ -102,6 +114,7 @@ class ReceiverTests(unittest.TestCase):
             broker_ip="127.0.0.1",
             broker_port=1883,
             broker_topic="nad",
+            receiver_loop_idle_sleep_seconds=0.1,
             event_dedupe_window_seconds=0,
             stale_event_window_seconds=0,
             source_priorities={"mqtt": 100, "volumio_http": 200},
@@ -113,7 +126,7 @@ class ReceiverTests(unittest.TestCase):
         with patch.object(receiver, "config", test_config), patch.object(
             receiver, "setup_logger", return_value=FakeLogger()
         ), patch.object(receiver, "SerialDevice", FakeSerialDevice), patch.object(
-            receiver, "Processor", FakeProcessor
+            receiver, "Processor", StoppingProcessor
         ), patch.object(receiver, "EventRouter", FakeEventRouter), patch.object(
             receiver, "VolumioRegistrationClient", FakeRegistrationClient
         ), patch.object(
@@ -123,6 +136,41 @@ class ReceiverTests(unittest.TestCase):
         ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress):
             with self.assertRaises(KeyboardInterrupt):
                 receiver.run_script()
+
+    def test_sleeps_between_successful_receiver_loop_iterations(self):
+        test_config = SimpleNamespace(
+            serial="/dev/null",
+            mqtt_ingress_enabled=False,
+            broker_ip="127.0.0.1",
+            broker_port=1883,
+            broker_topic="nad",
+            receiver_loop_idle_sleep_seconds=0.25,
+            event_dedupe_window_seconds=0,
+            stale_event_window_seconds=0,
+            source_priorities={"mqtt": 100, "volumio_http": 200},
+            source_precedence_window_seconds=0,
+            http_ingress_enabled=False,
+            volumio_registration_enabled=False,
+        )
+        sleep_calls = []
+
+        with patch.object(receiver, "config", test_config), patch.object(
+            receiver, "setup_logger", return_value=FakeLogger()
+        ), patch.object(receiver, "SerialDevice", FakeSerialDevice), patch.object(
+            receiver, "Processor", OnePassProcessor
+        ), patch.object(receiver, "EventRouter", FakeEventRouter), patch.object(
+            receiver, "VolumioRegistrationClient", FakeRegistrationClient
+        ), patch.object(
+            receiver, "VolumioRegistrationManager", FakeRegistrationManager
+        ), patch.object(
+            receiver, "HTTPIngressServer", FakeHTTPIngressServer
+        ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
+            receiver.time, "sleep", side_effect=lambda seconds: sleep_calls.append(seconds)
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                receiver.run_script()
+
+        self.assertEqual(sleep_calls, [0.25])
 
 
 if __name__ == "__main__":

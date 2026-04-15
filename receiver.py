@@ -42,9 +42,9 @@ def run_script():
 
     while True:
         try:
-            mqtt_ingress.poll()
             volumio_registration_manager.ensure_registration()
             processor.process_postponed()
+            time.sleep(config.receiver_loop_idle_sleep_seconds)
         except Exception as e:
             logger.error(f"An error occurred: {e}")
             time.sleep(1)
