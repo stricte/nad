@@ -7,7 +7,11 @@ from logger import setup_logger
 from config import config
 from serial_device import SerialDevice
 from processor import Processor
-from volumio_registration import VolumioRegistrationClient, VolumioRegistrationManager
+from volumio_registration import (
+    VolumioRegistrationClient,
+    VolumioRegistrationManager,
+    VolumioRegistrationScheduler,
+)
 
 
 def run_script():
@@ -36,7 +40,12 @@ def run_script():
         status_provider=volumio_registration_manager.status,
     )
     http_ingress.start()
-    volumio_registration_manager.ensure_registration()
+    volumio_registration_scheduler = VolumioRegistrationScheduler(
+        volumio_registration_manager,
+        logger,
+        config,
+    )
+    volumio_registration_scheduler.start()
 
     mqtt_ingress = MQTTIngress(event_router, logger, config)
     mqtt_ingress.start()
@@ -45,7 +54,6 @@ def run_script():
 
     while True:
         try:
-            volumio_registration_manager.ensure_registration()
             time.sleep(config.receiver_loop_idle_sleep_seconds)
         except Exception as e:
             logger.error(f"An error occurred: {e}")

@@ -3,7 +3,11 @@ import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from volumio_registration import VolumioRegistrationClient, VolumioRegistrationManager
+from volumio_registration import (
+    VolumioRegistrationClient,
+    VolumioRegistrationManager,
+    VolumioRegistrationScheduler,
+)
 
 
 class FakeLogger:
@@ -133,6 +137,19 @@ class FakeRegistrationClient:
         return self.results.pop(0)
 
 
+class FakeRegistrationManager:
+    def __init__(self, fail=False) -> None:
+        self.calls = 0
+        self.fail = fail
+        self.next_attempt_at = None
+
+    def ensure_registration(self):
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("boom")
+        return True
+
+
 class VolumioRegistrationManagerTests(unittest.TestCase):
     def setUp(self):
         self.logger = FakeLogger()
@@ -234,6 +251,68 @@ class VolumioRegistrationManagerTests(unittest.TestCase):
                 "next_attempt_at": "2026-04-05T12:00:05",
             },
         )
+
+
+class VolumioRegistrationSchedulerTests(unittest.TestCase):
+    def setUp(self):
+        self.logger = FakeLogger()
+
+    def test_does_not_start_when_registration_disabled(self):
+        manager = FakeRegistrationManager()
+        scheduler = VolumioRegistrationScheduler(
+            manager,
+            self.logger,
+            SimpleNamespace(volumio_registration_enabled=False),
+        )
+
+        scheduler.start()
+
+        self.assertIsNone(scheduler.thread)
+        self.assertEqual(manager.calls, 0)
+
+    def test_run_once_calls_registration_manager(self):
+        manager = FakeRegistrationManager()
+        scheduler = VolumioRegistrationScheduler(
+            manager,
+            self.logger,
+            SimpleNamespace(volumio_registration_enabled=True),
+        )
+
+        registered = scheduler.run_once()
+
+        self.assertTrue(registered)
+        self.assertEqual(manager.calls, 1)
+
+    def test_run_once_logs_registration_errors(self):
+        manager = FakeRegistrationManager(fail=True)
+        scheduler = VolumioRegistrationScheduler(
+            manager,
+            self.logger,
+            SimpleNamespace(volumio_registration_enabled=True),
+        )
+
+        registered = scheduler.run_once()
+
+        self.assertFalse(registered)
+        self.assertEqual(
+            self.logger.messages,
+            [("warning", "Volumio registration scheduler error: boom")],
+        )
+
+    def test_start_and_stop_manage_thread_lifecycle(self):
+        manager = FakeRegistrationManager()
+        manager.next_attempt_at = datetime.now() + timedelta(seconds=1)
+        scheduler = VolumioRegistrationScheduler(
+            manager,
+            self.logger,
+            SimpleNamespace(volumio_registration_enabled=True),
+        )
+
+        scheduler.start()
+        self.assertIsNotNone(scheduler.thread)
+
+        scheduler.stop()
+        self.assertIsNone(scheduler.thread)
 
 
 if __name__ == "__main__":

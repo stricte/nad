@@ -1,7 +1,10 @@
 import json
 from datetime import datetime, timedelta
+from threading import Event, Thread
 import urllib.error
 import urllib.request
+
+DEFAULT_REGISTRATION_SCHEDULER_IDLE_SECONDS = 1
 
 
 class VolumioRegistrationClient:
@@ -116,3 +119,55 @@ class VolumioRegistrationManager:
             return None
 
         return value.isoformat()
+
+
+class VolumioRegistrationScheduler:
+    def __init__(self, manager, logger, config) -> None:
+        self.manager = manager
+        self.logger = logger
+        self.config = config
+        self.stop_event = Event()
+        self.thread = None
+
+    def start(self):
+        if not self.config.volumio_registration_enabled:
+            return
+
+        if self.thread is not None:
+            return
+
+        self.stop_event.clear()
+        self.thread = Thread(target=self.__run, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        if self.thread is None:
+            return
+
+        self.stop_event.set()
+        self.thread.join(timeout=1)
+        self.thread = None
+
+    def run_once(self):
+        try:
+            return self.manager.ensure_registration()
+        except Exception as exc:
+            self.logger.warning(f"Volumio registration scheduler error: {exc}")
+            return False
+
+    def __run(self):
+        while not self.stop_event.is_set():
+            self.run_once()
+            self.stop_event.wait(self.__seconds_until_next_attempt())
+
+    def __seconds_until_next_attempt(self):
+        if self.manager.next_attempt_at is None:
+            return DEFAULT_REGISTRATION_SCHEDULER_IDLE_SECONDS
+
+        seconds_until_next_attempt = (
+            self.manager.next_attempt_at - datetime.now()
+        ).total_seconds()
+        if seconds_until_next_attempt <= 0:
+            return 0
+
+        return seconds_until_next_attempt
