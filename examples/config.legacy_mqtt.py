@@ -28,6 +28,8 @@ class AppConfig:
         self.volumio_registration_refresh_interval_seconds = 3600
         self.volumio_registration_retry_initial_delay_seconds = 5
         self.volumio_registration_retry_max_delay_seconds = 300
+        self.receiver_loop_idle_sleep_seconds = 0.1
+        self.postponed_processor_interval_seconds = 0.1
         self.serial = "/dev/ttyUSB0"
 
 

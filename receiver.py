@@ -2,6 +2,7 @@ import time
 from event_router import EventRouter
 from http_ingress import HTTPIngressServer
 from mqtt_ingress import MQTTIngress
+from postponed_command_scheduler import PostponedCommandScheduler
 from logger import setup_logger
 from config import config
 from serial_device import SerialDevice
@@ -39,11 +40,12 @@ def run_script():
 
     mqtt_ingress = MQTTIngress(event_router, logger, config)
     mqtt_ingress.start()
+    postponed_command_scheduler = PostponedCommandScheduler(processor, logger, config)
+    postponed_command_scheduler.start()
 
     while True:
         try:
             volumio_registration_manager.ensure_registration()
-            processor.process_postponed()
             time.sleep(config.receiver_loop_idle_sleep_seconds)
         except Exception as e:
             logger.error(f"An error occurred: {e}")
