@@ -90,7 +90,7 @@ class FakeMQTTIngress:
     def start(self):
         self.started = True
 
-    def poll(self):
+    def stop(self):
         return None
 
 
