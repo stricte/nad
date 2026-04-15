@@ -35,25 +35,13 @@ class FakeSerialDevice:
         self.logger = logger
 
 
-class StoppingProcessor:
+class FakeProcessor:
     def __init__(self, serial, logger):
         self.serial = serial
         self.logger = logger
 
     def process_postponed(self):
-        raise KeyboardInterrupt()
-
-
-class OnePassProcessor:
-    def __init__(self, serial, logger):
-        self.serial = serial
-        self.logger = logger
-        self.calls = 0
-
-    def process_postponed(self):
-        self.calls += 1
-        if self.calls > 1:
-            raise KeyboardInterrupt()
+        return None
 
 
 class FakeEventRouter:
@@ -106,6 +94,20 @@ class FakeMQTTIngress:
         return None
 
 
+class FakePostponedCommandScheduler:
+    def __init__(self, processor, logger, config):
+        self.processor = processor
+        self.logger = logger
+        self.config = config
+        self.started = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        return None
+
+
 class ReceiverTests(unittest.TestCase):
     def test_starts_without_constructing_transport_specific_clients_in_receiver(self):
         test_config = SimpleNamespace(
@@ -115,6 +117,7 @@ class ReceiverTests(unittest.TestCase):
             broker_port=1883,
             broker_topic="nad",
             receiver_loop_idle_sleep_seconds=0.1,
+            postponed_processor_interval_seconds=0.1,
             event_dedupe_window_seconds=0,
             stale_event_window_seconds=0,
             source_priorities={"mqtt": 100, "volumio_http": 200},
@@ -126,14 +129,16 @@ class ReceiverTests(unittest.TestCase):
         with patch.object(receiver, "config", test_config), patch.object(
             receiver, "setup_logger", return_value=FakeLogger()
         ), patch.object(receiver, "SerialDevice", FakeSerialDevice), patch.object(
-            receiver, "Processor", StoppingProcessor
+            receiver, "Processor", FakeProcessor
         ), patch.object(receiver, "EventRouter", FakeEventRouter), patch.object(
             receiver, "VolumioRegistrationClient", FakeRegistrationClient
         ), patch.object(
             receiver, "VolumioRegistrationManager", FakeRegistrationManager
         ), patch.object(
             receiver, "HTTPIngressServer", FakeHTTPIngressServer
-        ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress):
+        ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
+            receiver, "PostponedCommandScheduler", FakePostponedCommandScheduler
+        ), patch.object(receiver.time, "sleep", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 receiver.run_script()
 
@@ -145,6 +150,7 @@ class ReceiverTests(unittest.TestCase):
             broker_port=1883,
             broker_topic="nad",
             receiver_loop_idle_sleep_seconds=0.25,
+            postponed_processor_interval_seconds=0.1,
             event_dedupe_window_seconds=0,
             stale_event_window_seconds=0,
             source_priorities={"mqtt": 100, "volumio_http": 200},
@@ -157,7 +163,7 @@ class ReceiverTests(unittest.TestCase):
         with patch.object(receiver, "config", test_config), patch.object(
             receiver, "setup_logger", return_value=FakeLogger()
         ), patch.object(receiver, "SerialDevice", FakeSerialDevice), patch.object(
-            receiver, "Processor", OnePassProcessor
+            receiver, "Processor", FakeProcessor
         ), patch.object(receiver, "EventRouter", FakeEventRouter), patch.object(
             receiver, "VolumioRegistrationClient", FakeRegistrationClient
         ), patch.object(
@@ -165,7 +171,14 @@ class ReceiverTests(unittest.TestCase):
         ), patch.object(
             receiver, "HTTPIngressServer", FakeHTTPIngressServer
         ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
-            receiver.time, "sleep", side_effect=lambda seconds: sleep_calls.append(seconds)
+            receiver, "PostponedCommandScheduler", FakePostponedCommandScheduler
+        ), patch.object(
+            receiver.time,
+            "sleep",
+            side_effect=lambda seconds: (
+                sleep_calls.append(seconds),
+                (_ for _ in ()).throw(KeyboardInterrupt()),
+            ),
         ):
             with self.assertRaises(KeyboardInterrupt):
                 receiver.run_script()
