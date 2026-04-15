@@ -177,6 +177,22 @@ class ImmediateStopEvent:
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_skips_signal_handler_registration_outside_main_thread(self):
+        fake_current_thread = object()
+        fake_main_thread = object()
+
+        with patch.object(
+            receiver, "current_thread", return_value=fake_current_thread
+        ), patch.object(
+            receiver, "main_thread", return_value=fake_main_thread
+        ), patch.object(
+            receiver.signal, "signal"
+        ) as signal_mock:
+            registered = receiver.install_shutdown_handlers(ImmediateStopEvent())
+
+        self.assertFalse(registered)
+        signal_mock.assert_not_called()
+
     def test_starts_and_stops_components_in_lifecycle_order(self):
         test_config = SimpleNamespace(
             serial="/dev/null",

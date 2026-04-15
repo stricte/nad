@@ -1,5 +1,5 @@
 import signal
-from threading import Event
+from threading import Event, current_thread, main_thread
 from event_router import EventRouter
 from http_ingress import HTTPIngressServer
 from mqtt_ingress import MQTTIngress
@@ -16,11 +16,15 @@ from volumio_registration import (
 
 
 def install_shutdown_handlers(stop_event):
+    if current_thread() is not main_thread():
+        return False
+
     def request_shutdown(_signum, _frame):
         stop_event.set()
 
     signal.signal(signal.SIGINT, request_shutdown)
     signal.signal(signal.SIGTERM, request_shutdown)
+    return True
 
 
 def run_script(stop_event=None, install_signal_handlers=True):
