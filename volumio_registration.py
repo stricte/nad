@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 
 DEFAULT_REGISTRATION_SCHEDULER_IDLE_SECONDS = 1
+DEFAULT_REGISTRATION_SCHEDULER_ERROR_DELAY_SECONDS = 5
 
 
 class VolumioRegistrationClient:
@@ -153,6 +154,9 @@ class VolumioRegistrationScheduler:
             return self.manager.ensure_registration()
         except Exception as exc:
             self.logger.warning(f"Volumio registration scheduler error: {exc}")
+            self.manager.next_attempt_at = datetime.now() + timedelta(
+                seconds=self.__error_delay_seconds()
+            )
             return False
 
     def __run(self):
@@ -171,3 +175,10 @@ class VolumioRegistrationScheduler:
             return 0
 
         return seconds_until_next_attempt
+
+    def __error_delay_seconds(self):
+        return getattr(
+            self.config,
+            "volumio_registration_scheduler_error_delay_seconds",
+            DEFAULT_REGISTRATION_SCHEDULER_ERROR_DELAY_SECONDS,
+        )

@@ -298,6 +298,28 @@ class VolumioRegistrationSchedulerTests(unittest.TestCase):
             self.logger.messages,
             [("warning", "Volumio registration scheduler error: boom")],
         )
+        self.assertIsNotNone(manager.next_attempt_at)
+        self.assertGreater(manager.next_attempt_at, datetime.now())
+
+    def test_run_once_uses_configured_error_delay(self):
+        manager = FakeRegistrationManager(fail=True)
+        scheduler = VolumioRegistrationScheduler(
+            manager,
+            self.logger,
+            SimpleNamespace(
+                volumio_registration_enabled=True,
+                volumio_registration_scheduler_error_delay_seconds=30,
+            ),
+        )
+        before = datetime.now()
+
+        registered = scheduler.run_once()
+
+        self.assertFalse(registered)
+        self.assertGreaterEqual(
+            manager.next_attempt_at,
+            before + timedelta(seconds=29),
+        )
 
     def test_start_and_stop_manage_thread_lifecycle(self):
         manager = FakeRegistrationManager()
