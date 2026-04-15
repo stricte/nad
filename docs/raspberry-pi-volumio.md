@@ -81,8 +81,16 @@ The Volumio example already sets:
 - `http_ingress_enabled = True`
 - `http_ingress_shadow_mode = True`
 - `volumio_registration_enabled = True`
-- `volumio_base_url = "http://127.0.0.1"`
+- `volumio_base_url = "http://127.0.0.1:3000"`
 - `volumio_notification_callback_url = "http://127.0.0.1:8080/ingress/volumio/notifications"`
+
+Volumio commonly exposes its local API on port `3000`. Verify the API before restarting the service:
+
+```bash
+curl -i http://127.0.0.1:3000/api/v1/pushNotificationUrls
+```
+
+If your Volumio installation listens on a different port, update `self.volumio_base_url` in `/opt/nad/config.py`.
 
 ## Start And Inspect
 
@@ -248,6 +256,7 @@ The installer will redeploy the code and refresh the virtual environment. Existi
 ### Volumio registration does not succeed
 
 - verify `self.volumio_base_url`
+- check the local Volumio API with `curl -i http://127.0.0.1:3000/api/v1/pushNotificationUrls`
 - verify `self.volumio_notification_callback_url`
 - use the status endpoint to inspect `failure_count` and `last_failure_at`
 - if the callback URL is `127.0.0.1`, this only works when Volumio and this service are on the same device
