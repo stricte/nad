@@ -69,6 +69,20 @@ class FakeRegistrationManager:
         return {"enabled": False}
 
 
+class FakeRegistrationScheduler:
+    def __init__(self, manager, logger, config):
+        self.manager = manager
+        self.logger = logger
+        self.config = config
+        self.started = False
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        return None
+
+
 class FakeHTTPIngressServer:
     def __init__(self, event_router, logger, app_config, status_provider=None):
         self.event_router = event_router
@@ -135,6 +149,8 @@ class ReceiverTests(unittest.TestCase):
         ), patch.object(
             receiver, "VolumioRegistrationManager", FakeRegistrationManager
         ), patch.object(
+            receiver, "VolumioRegistrationScheduler", FakeRegistrationScheduler
+        ), patch.object(
             receiver, "HTTPIngressServer", FakeHTTPIngressServer
         ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
             receiver, "PostponedCommandScheduler", FakePostponedCommandScheduler
@@ -168,6 +184,8 @@ class ReceiverTests(unittest.TestCase):
             receiver, "VolumioRegistrationClient", FakeRegistrationClient
         ), patch.object(
             receiver, "VolumioRegistrationManager", FakeRegistrationManager
+        ), patch.object(
+            receiver, "VolumioRegistrationScheduler", FakeRegistrationScheduler
         ), patch.object(
             receiver, "HTTPIngressServer", FakeHTTPIngressServer
         ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
