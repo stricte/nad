@@ -20,12 +20,15 @@ class MQTTIngress:
         self.client.reconnect_delay_set(min_delay=1, max_delay=120)
         self.client.connect(self.config.broker_ip, self.config.broker_port)
         self.client.subscribe(self.config.broker_topic)
+        self.client.loop_start()
 
-    def poll(self):
+    def stop(self):
         if self.client is None:
             return
 
-        self.client.loop()
+        self.client.loop_stop()
+        self.client.disconnect()
+        self.client = None
 
     @staticmethod
     def __default_client_factory():

@@ -42,7 +42,6 @@ def run_script():
 
     while True:
         try:
-            mqtt_ingress.poll()
             volumio_registration_manager.ensure_registration()
             processor.process_postponed()
         except Exception as e:

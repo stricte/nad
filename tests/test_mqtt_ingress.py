@@ -22,6 +22,15 @@ class FakeClient:
     def loop(self):
         self.calls.append(("loop",))
 
+    def loop_start(self):
+        self.calls.append(("loop_start",))
+
+    def loop_stop(self):
+        self.calls.append(("loop_stop",))
+
+    def disconnect(self):
+        self.calls.append(("disconnect",))
+
 
 class FakeLogger:
     def info(self, _message):
@@ -57,11 +66,11 @@ class MQTTIngressTests(unittest.TestCase):
         )
 
         ingress.start()
-        ingress.poll()
+        ingress.stop()
 
         self.assertEqual(created_clients, [])
 
-    def test_configures_and_polls_client_when_enabled(self):
+    def test_configures_starts_and_stops_client_when_enabled(self):
         created_clients = []
 
         def client_factory():
@@ -81,7 +90,7 @@ class MQTTIngressTests(unittest.TestCase):
         )
 
         ingress.start()
-        ingress.poll()
+        ingress.stop()
 
         self.assertEqual(len(created_clients), 1)
         client = created_clients[0]
@@ -93,7 +102,9 @@ class MQTTIngressTests(unittest.TestCase):
                 ("reconnect_delay_set", 1, 120),
                 ("connect", "127.0.0.1", 1883),
                 ("subscribe", "nad"),
-                ("loop",),
+                ("loop_start",),
+                ("loop_stop",),
+                ("disconnect",),
             ],
         )
 
