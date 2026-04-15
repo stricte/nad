@@ -93,6 +93,9 @@ class FakeHTTPIngressServer:
     def start(self):
         return None
 
+    def stop(self):
+        return None
+
 
 class FakeMQTTIngress:
     def __init__(self, event_router, logger, config):
@@ -122,15 +125,65 @@ class FakePostponedCommandScheduler:
         return None
 
 
+class RecordingComponent:
+    events = []
+
+    def __init__(self, name):
+        self.name = name
+
+    def start(self):
+        self.events.append((self.name, "start"))
+
+    def stop(self):
+        self.events.append((self.name, "stop"))
+
+
+class RecordingHTTPIngressServer(RecordingComponent):
+    def __init__(self, event_router, logger, app_config, status_provider=None):
+        super().__init__("http")
+        self.event_router = event_router
+        self.logger = logger
+        self.app_config = app_config
+        self.status_provider = status_provider
+
+
+class RecordingRegistrationScheduler(RecordingComponent):
+    def __init__(self, manager, logger, config):
+        super().__init__("registration")
+        self.manager = manager
+        self.logger = logger
+        self.config = config
+
+
+class RecordingMQTTIngress(RecordingComponent):
+    def __init__(self, event_router, logger, config):
+        super().__init__("mqtt")
+        self.event_router = event_router
+        self.logger = logger
+        self.config = config
+
+
+class RecordingPostponedCommandScheduler(RecordingComponent):
+    def __init__(self, processor, logger, config):
+        super().__init__("postponed")
+        self.processor = processor
+        self.logger = logger
+        self.config = config
+
+
+class ImmediateStopEvent:
+    def wait(self):
+        return True
+
+
 class ReceiverTests(unittest.TestCase):
-    def test_starts_without_constructing_transport_specific_clients_in_receiver(self):
+    def test_starts_and_stops_components_in_lifecycle_order(self):
         test_config = SimpleNamespace(
             serial="/dev/null",
             mqtt_ingress_enabled=False,
             broker_ip="127.0.0.1",
             broker_port=1883,
             broker_topic="nad",
-            receiver_loop_idle_sleep_seconds=0.1,
             postponed_processor_interval_seconds=0.1,
             event_dedupe_window_seconds=0,
             stale_event_window_seconds=0,
@@ -139,6 +192,7 @@ class ReceiverTests(unittest.TestCase):
             http_ingress_enabled=False,
             volumio_registration_enabled=False,
         )
+        RecordingComponent.events = []
 
         with patch.object(receiver, "config", test_config), patch.object(
             receiver, "setup_logger", return_value=FakeLogger()
@@ -149,59 +203,34 @@ class ReceiverTests(unittest.TestCase):
         ), patch.object(
             receiver, "VolumioRegistrationManager", FakeRegistrationManager
         ), patch.object(
-            receiver, "VolumioRegistrationScheduler", FakeRegistrationScheduler
+            receiver, "VolumioRegistrationScheduler", RecordingRegistrationScheduler
         ), patch.object(
-            receiver, "HTTPIngressServer", FakeHTTPIngressServer
-        ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
-            receiver, "PostponedCommandScheduler", FakePostponedCommandScheduler
-        ), patch.object(receiver.time, "sleep", side_effect=KeyboardInterrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                receiver.run_script()
-
-    def test_sleeps_between_successful_receiver_loop_iterations(self):
-        test_config = SimpleNamespace(
-            serial="/dev/null",
-            mqtt_ingress_enabled=False,
-            broker_ip="127.0.0.1",
-            broker_port=1883,
-            broker_topic="nad",
-            receiver_loop_idle_sleep_seconds=0.25,
-            postponed_processor_interval_seconds=0.1,
-            event_dedupe_window_seconds=0,
-            stale_event_window_seconds=0,
-            source_priorities={"mqtt": 100, "volumio_http": 200},
-            source_precedence_window_seconds=0,
-            http_ingress_enabled=False,
-            volumio_registration_enabled=False,
-        )
-        sleep_calls = []
-
-        with patch.object(receiver, "config", test_config), patch.object(
-            receiver, "setup_logger", return_value=FakeLogger()
-        ), patch.object(receiver, "SerialDevice", FakeSerialDevice), patch.object(
-            receiver, "Processor", FakeProcessor
-        ), patch.object(receiver, "EventRouter", FakeEventRouter), patch.object(
-            receiver, "VolumioRegistrationClient", FakeRegistrationClient
+            receiver, "HTTPIngressServer", RecordingHTTPIngressServer
         ), patch.object(
-            receiver, "VolumioRegistrationManager", FakeRegistrationManager
+            receiver, "MQTTIngress", RecordingMQTTIngress
         ), patch.object(
-            receiver, "VolumioRegistrationScheduler", FakeRegistrationScheduler
-        ), patch.object(
-            receiver, "HTTPIngressServer", FakeHTTPIngressServer
-        ), patch.object(receiver, "MQTTIngress", FakeMQTTIngress), patch.object(
-            receiver, "PostponedCommandScheduler", FakePostponedCommandScheduler
-        ), patch.object(
-            receiver.time,
-            "sleep",
-            side_effect=lambda seconds: (
-                sleep_calls.append(seconds),
-                (_ for _ in ()).throw(KeyboardInterrupt()),
-            ),
+            receiver,
+            "PostponedCommandScheduler",
+            RecordingPostponedCommandScheduler,
         ):
-            with self.assertRaises(KeyboardInterrupt):
-                receiver.run_script()
+            receiver.run_script(
+                stop_event=ImmediateStopEvent(),
+                install_signal_handlers=False,
+            )
 
-        self.assertEqual(sleep_calls, [0.25])
+        self.assertEqual(
+            RecordingComponent.events,
+            [
+                ("http", "start"),
+                ("registration", "start"),
+                ("mqtt", "start"),
+                ("postponed", "start"),
+                ("postponed", "stop"),
+                ("mqtt", "stop"),
+                ("registration", "stop"),
+                ("http", "stop"),
+            ],
+        )
 
 
 if __name__ == "__main__":

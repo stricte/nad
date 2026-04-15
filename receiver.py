@@ -1,4 +1,5 @@
-import time
+import signal
+from threading import Event
 from event_router import EventRouter
 from http_ingress import HTTPIngressServer
 from mqtt_ingress import MQTTIngress
@@ -14,8 +15,19 @@ from volumio_registration import (
 )
 
 
-def run_script():
+def install_shutdown_handlers(stop_event):
+    def request_shutdown(_signum, _frame):
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, request_shutdown)
+    signal.signal(signal.SIGTERM, request_shutdown)
+
+
+def run_script(stop_event=None, install_signal_handlers=True):
     logger = setup_logger()
+    stop_event = stop_event or Event()
+    if install_signal_handlers:
+        install_shutdown_handlers(stop_event)
 
     serial = SerialDevice(config.serial, logger)
     processor = Processor(serial, logger)
@@ -39,25 +51,30 @@ def run_script():
         config,
         status_provider=volumio_registration_manager.status,
     )
-    http_ingress.start()
     volumio_registration_scheduler = VolumioRegistrationScheduler(
         volumio_registration_manager,
         logger,
         config,
     )
-    volumio_registration_scheduler.start()
-
     mqtt_ingress = MQTTIngress(event_router, logger, config)
-    mqtt_ingress.start()
     postponed_command_scheduler = PostponedCommandScheduler(processor, logger, config)
-    postponed_command_scheduler.start()
+    components = [
+        http_ingress,
+        volumio_registration_scheduler,
+        mqtt_ingress,
+        postponed_command_scheduler,
+    ]
 
-    while True:
-        try:
-            time.sleep(config.receiver_loop_idle_sleep_seconds)
-        except Exception as e:
-            logger.error(f"An error occurred: {e}")
-            time.sleep(1)
+    try:
+        for component in components:
+            component.start()
+        stop_event.wait()
+    finally:
+        for component in reversed(components):
+            try:
+                component.stop()
+            except Exception as e:
+                logger.error(f"Error stopping component {component.__class__.__name__}: {e}")
 
 
 if __name__ == "__main__":
