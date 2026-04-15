@@ -61,7 +61,7 @@ self.http_ingress_shadow_mode = True
 self.http_ingress_host = "127.0.0.1"
 self.http_ingress_port = 8080
 self.volumio_registration_enabled = True
-self.volumio_base_url = "http://127.0.0.1"
+self.volumio_base_url = "http://127.0.0.1:3000"
 self.volumio_notification_callback_url = "http://127.0.0.1:8080/ingress/volumio/notifications"
 ```
 
