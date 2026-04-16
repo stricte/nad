@@ -26,6 +26,11 @@ class FakeEventRouter:
         self.routed_events.append((event_name, source, raw_payload))
         return True
 
+    def route_events(self, events):
+        for event_name, source, raw_payload, _raw_status in events:
+            self.routed_events.append((event_name, source, raw_payload))
+        return True
+
 
 class FakeLogger:
     def __init__(self) -> None:
@@ -266,6 +271,18 @@ class HTTPIngressTests(unittest.TestCase):
             )
         )
 
+    def test_async_event_router_rejects_batch_when_queue_is_full_without_partial_enqueue(self):
+        async_router = AsyncEventRouter(self.event_router, self.logger, max_queue_size=1)
+
+        self.assertFalse(
+            async_router.route_events(
+                [
+                    ("playing", "volumio_http", {"status": "play"}, "play"),
+                    ("paused", "volumio_http", {"status": "pause"}, "pause"),
+                ]
+            )
+        )
+
     def test_async_event_router_keeps_thread_reference_when_stop_times_out(self):
         async_router = AsyncEventRouter(SlowEventRouter(delay_seconds=6), self.logger)
         async_router.start()
@@ -291,6 +308,9 @@ class HTTPIngressTests(unittest.TestCase):
             def route_event(self, _event_name, source, raw_payload=None):
                 return False
 
+            def route_events(self, _events):
+                return False
+
         status_code, response_body, _content_type = handle_notification_request(
             self.config.http_ingress_path,
             json.dumps({"status": "pause"}).encode("utf-8"),
@@ -305,6 +325,34 @@ class HTTPIngressTests(unittest.TestCase):
         self.assertEqual(self.metrics.accepted_requests, 0)
         self.assertEqual(self.metrics.routed_events, 0)
         self.assertEqual(self.metrics.dropped_events, 1)
+
+    def test_returns_503_without_partial_enqueue_for_multi_event_request(self):
+        self.config.http_ingress_shadow_mode = False
+        accepted_batches = []
+
+        class FullBatchEventRouter:
+            def route_event(self, _event_name, source, raw_payload=None):
+                raise AssertionError("route_event fallback should not be used")
+
+            def route_events(self, events):
+                accepted_batches.append(events)
+                return False
+
+        status_code, response_body, _content_type = handle_notification_request(
+            self.config.http_ingress_path,
+            json.dumps([{"status": "play"}, {"status": "pause"}]).encode("utf-8"),
+            FullBatchEventRouter(),
+            self.logger,
+            self.config,
+            self.metrics,
+        )
+
+        self.assertEqual(status_code, 503)
+        self.assertEqual(response_body, b"Queue Full")
+        self.assertEqual(self.metrics.accepted_requests, 0)
+        self.assertEqual(self.metrics.routed_events, 0)
+        self.assertEqual(self.metrics.dropped_events, 2)
+        self.assertEqual(len(accepted_batches), 1)
 
     def test_ignores_unknown_status(self):
         status_code, response_body, _content_type = handle_notification_request(

@@ -173,6 +173,9 @@ def handle_notification_request(path, body, event_router, logger, config, metric
         metrics.ignored_requests += 1
         return 202, b"Ignored", "text/plain; charset=utf-8"
 
+    if not config.http_ingress_shadow_mode:
+        route_batch = []
+
     for mapped_event, raw_status, notification_payload in notification_events:
         logger.info(
             "Accepted HTTP ingress event "
@@ -181,21 +184,39 @@ def handle_notification_request(path, body, event_router, logger, config, metric
         )
 
         if not config.http_ingress_shadow_mode:
-            accepted = event_router.route_event(
-                mapped_event,
-                source="volumio_http",
-                raw_payload=notification_payload,
-            )
-            if accepted:
-                metrics.routed_events += 1
-            else:
-                metrics.dropped_events += 1
-                logger.warning(
-                    "Dropping HTTP ingress event because async queue is full "
-                    f"source=volumio_http raw_status={raw_status} "
-                    f"mapped_event={mapped_event}"
+            route_batch.append(
+                (
+                    mapped_event,
+                    "volumio_http",
+                    notification_payload,
+                    raw_status,
                 )
-                return 503, b"Queue Full", "text/plain; charset=utf-8"
+            )
+
+    if not config.http_ingress_shadow_mode:
+        route_events = getattr(event_router, "route_events", None)
+        if route_events is not None:
+            accepted = route_events(route_batch)
+        else:
+            accepted = True
+            for mapped_event, source, notification_payload, _raw_status in route_batch:
+                if not event_router.route_event(
+                    mapped_event,
+                    source=source,
+                    raw_payload=notification_payload,
+                ):
+                    accepted = False
+                    break
+
+        if not accepted:
+            metrics.dropped_events += len(route_batch)
+            logger.warning(
+                "Dropping HTTP ingress request because async queue is full "
+                f"source=volumio_http event_count={len(route_batch)}"
+            )
+            return 503, b"Queue Full", "text/plain; charset=utf-8"
+
+        metrics.routed_events += len(route_batch)
 
     metrics.accepted_requests += 1
     return 202, b"Accepted", "text/plain; charset=utf-8"
@@ -354,6 +375,23 @@ class AsyncEventRouter:
             return True
         except Full:
             return False
+
+    def route_events(self, events):
+        if len(events) == 0:
+            return True
+
+        with self._queue.mutex:
+            available_slots = self._queue.maxsize - self._queue._qsize()
+            if available_slots < len(events):
+                return False
+
+            for event, source, raw_payload, _raw_status in events:
+                self._queue._put((event, source, raw_payload))
+
+            self._queue.unfinished_tasks += len(events)
+            self._queue.not_empty.notify(len(events))
+
+        return True
 
     def __run(self):
         while not self._stop_event.is_set() or not self._queue.empty():
