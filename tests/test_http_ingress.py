@@ -1,10 +1,12 @@
 import json
+import time
 import urllib.error
 import urllib.request
 import unittest
 from types import SimpleNamespace
 
 from http_ingress import (
+    AsyncEventRouter,
     HTTPIngressServer,
     HTTPIngressMetrics,
     build_status_payload,
@@ -33,6 +35,19 @@ class FakeLogger:
 
     def warning(self, message):
         self.messages.append(("warning", message))
+
+    def error(self, message):
+        self.messages.append(("error", message))
+
+
+class SlowEventRouter(FakeEventRouter):
+    def __init__(self, delay_seconds) -> None:
+        super().__init__()
+        self.delay_seconds = delay_seconds
+
+    def route_event(self, event_name, source, raw_payload=None):
+        time.sleep(self.delay_seconds)
+        return super().route_event(event_name, source, raw_payload=raw_payload)
 
 
 class HTTPIngressTests(unittest.TestCase):
@@ -210,6 +225,28 @@ class HTTPIngressTests(unittest.TestCase):
         self.assertEqual(self.metrics.accepted_requests, 1)
         self.assertEqual(self.metrics.routed_events, 2)
 
+    def test_async_event_router_routes_in_background(self):
+        async_router = AsyncEventRouter(self.event_router, self.logger)
+        async_router.start()
+
+        try:
+            accepted = async_router.route_event(
+                "playing",
+                source="volumio_http",
+                raw_payload={"status": "play"},
+            )
+            deadline = time.time() + 1
+            while len(self.event_router.routed_events) == 0 and time.time() < deadline:
+                time.sleep(0.01)
+        finally:
+            async_router.stop()
+
+        self.assertTrue(accepted)
+        self.assertEqual(
+            self.event_router.routed_events,
+            [("playing", "volumio_http", {"status": "play"})],
+        )
+
     def test_ignores_unknown_status(self):
         status_code, response_body, _content_type = handle_notification_request(
             self.config.http_ingress_path,
@@ -344,3 +381,34 @@ class HTTPIngressIntegrationTests(unittest.TestCase):
             urllib.request.urlopen(request, timeout=5)
 
         self.assertEqual(ctx.exception.code, 400)
+
+    def test_notification_endpoint_responds_before_slow_routing_finishes(self):
+        self.server.stop()
+        self.event_router = SlowEventRouter(delay_seconds=1)
+        self.server = HTTPIngressServer(
+            self.event_router,
+            self.logger,
+            self.config,
+            status_provider=lambda: self.registration_status,
+        )
+        self.server.start()
+        server_address = self.server.address()
+        self.base_url = f"http://{server_address[0]}:{server_address[1]}"
+
+        payload = json.dumps({"status": "pause"}).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}{self.config.http_ingress_path}",
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+
+        started_at = time.time()
+        with urllib.request.urlopen(request, timeout=5) as response:
+            status_code = response.getcode()
+            response_body = response.read()
+        elapsed_seconds = time.time() - started_at
+
+        self.assertEqual(status_code, 202)
+        self.assertEqual(response_body, b"Accepted")
+        self.assertLess(elapsed_seconds, 0.5)

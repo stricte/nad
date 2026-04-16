@@ -1,6 +1,7 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from queue import Empty, Queue
+from threading import Event, Thread
 
 
 STATUS_TO_EVENT = {
@@ -241,6 +242,7 @@ class HTTPIngressServer:
         self.app_config = app_config
         self.status_provider = status_provider
         self.metrics = HTTPIngressMetrics()
+        self.async_event_router = None
         self.server = None
         self.thread = None
 
@@ -248,8 +250,11 @@ class HTTPIngressServer:
         if not self.app_config.http_ingress_enabled:
             return
 
+        self.async_event_router = AsyncEventRouter(self.event_router, self.logger)
+        self.async_event_router.start()
+
         handler = type("ConfiguredHTTPIngressHandler", (HTTPIngressHandler,), {})
-        handler.event_router = self.event_router
+        handler.event_router = self.async_event_router
         handler.logger = self.logger
         handler.app_config = self.app_config
         handler.metrics = self.metrics
@@ -275,15 +280,68 @@ class HTTPIngressServer:
 
     def stop(self):
         if self.server is None:
+            if self.async_event_router is not None:
+                self.async_event_router.stop()
+                self.async_event_router = None
             return
 
         self.server.shutdown()
         self.server.server_close()
         self.server = None
         self.thread = None
+        if self.async_event_router is not None:
+            self.async_event_router.stop()
+            self.async_event_router = None
 
     def address(self):
         if self.server is None:
             return None
 
         return self.server.server_address
+
+
+class AsyncEventRouter:
+    def __init__(self, event_router, logger) -> None:
+        self.event_router = event_router
+        self.logger = logger
+        self._queue = Queue()
+        self._stop_event = Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is not None:
+            return
+
+        self._stop_event.clear()
+        self._thread = Thread(target=self.__run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        if self._thread is None:
+            return
+
+        self._stop_event.set()
+        self._thread.join(timeout=5)
+        self._thread = None
+
+    def route_event(self, event, source: str, raw_payload=None):
+        self._queue.put((event, source, raw_payload))
+        return True
+
+    def __run(self):
+        while not self._stop_event.is_set() or not self._queue.empty():
+            try:
+                event, source, raw_payload = self._queue.get(timeout=0.1)
+            except Empty:
+                continue
+
+            try:
+                self.event_router.route_event(
+                    event,
+                    source=source,
+                    raw_payload=raw_payload,
+                )
+            except Exception as e:
+                self.logger.error(f"Error routing HTTP ingress event asynchronously: {e}")
+            finally:
+                self._queue.task_done()
