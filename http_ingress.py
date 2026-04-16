@@ -338,6 +338,12 @@ class AsyncEventRouter:
 
         self._stop_event.set()
         self._thread.join(timeout=5)
+        if self._thread.is_alive():
+            self.logger.warning(
+                "HTTP ingress async router worker did not stop before timeout"
+            )
+            return
+
         self._thread = None
 
     def route_event(self, event, source: str, raw_payload=None):

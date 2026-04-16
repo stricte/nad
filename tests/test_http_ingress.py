@@ -265,6 +265,24 @@ class HTTPIngressTests(unittest.TestCase):
             )
         )
 
+    def test_async_event_router_keeps_thread_reference_when_stop_times_out(self):
+        async_router = AsyncEventRouter(SlowEventRouter(delay_seconds=6), self.logger)
+        async_router.start()
+
+        self.assertTrue(
+            async_router.route_event(
+                "playing",
+                source="volumio_http",
+                raw_payload={"status": "play"},
+            )
+        )
+        time.sleep(0.1)
+
+        async_router.stop()
+
+        self.assertIsNotNone(async_router._thread)
+        self.assertTrue(async_router._thread.is_alive())
+
     def test_returns_503_when_async_queue_is_full(self):
         self.config.http_ingress_shadow_mode = False
 
