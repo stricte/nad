@@ -470,3 +470,42 @@ class HTTPIngressIntegrationTests(unittest.TestCase):
         self.assertEqual(status_code, 202)
         self.assertEqual(response_body, b"Accepted")
         self.assertLess(elapsed_seconds, 0.5)
+
+
+class HTTPIngressServerLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.logger = FakeLogger()
+        self.event_router = FakeEventRouter()
+        self.config = SimpleNamespace(
+            http_ingress_enabled=False,
+            http_ingress_path="/ingress/volumio/notifications",
+            http_ingress_status_path="/ingress/status",
+            http_ingress_shadow_mode=False,
+            http_ingress_host="127.0.0.1",
+            http_ingress_port=0,
+            http_ingress_max_body_bytes=1024,
+        )
+
+    def test_stop_keeps_async_router_reference_when_worker_is_still_running(self):
+        server = HTTPIngressServer(
+            self.event_router,
+            self.logger,
+            self.config,
+        )
+        async_router = AsyncEventRouter(SlowEventRouter(delay_seconds=6), self.logger)
+        async_router.start()
+        self.assertTrue(
+            async_router.route_event(
+                "playing",
+                source="volumio_http",
+                raw_payload={"status": "play"},
+            )
+        )
+        time.sleep(0.1)
+        server.async_event_router = async_router
+
+        server.stop()
+
+        self.assertIs(server.async_event_router, async_router)
+        self.assertIsNotNone(server.async_event_router._thread)
+        self.assertTrue(server.async_event_router._thread.is_alive())

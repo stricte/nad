@@ -297,8 +297,8 @@ class HTTPIngressServer:
     def stop(self):
         if self.server is None:
             if self.async_event_router is not None:
-                self.async_event_router.stop()
-                self.async_event_router = None
+                if self.async_event_router.stop():
+                    self.async_event_router = None
             return
 
         self.server.shutdown()
@@ -306,8 +306,8 @@ class HTTPIngressServer:
         self.server = None
         self.thread = None
         if self.async_event_router is not None:
-            self.async_event_router.stop()
-            self.async_event_router = None
+            if self.async_event_router.stop():
+                self.async_event_router = None
 
     def address(self):
         if self.server is None:
@@ -334,7 +334,7 @@ class AsyncEventRouter:
 
     def stop(self):
         if self._thread is None:
-            return
+            return True
 
         self._stop_event.set()
         self._thread.join(timeout=5)
@@ -342,9 +342,10 @@ class AsyncEventRouter:
             self.logger.warning(
                 "HTTP ingress async router worker did not stop before timeout"
             )
-            return
+            return False
 
         self._thread = None
+        return True
 
     def route_event(self, event, source: str, raw_payload=None):
         try:
