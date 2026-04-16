@@ -1,6 +1,7 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from queue import Empty, Full, Queue
+from threading import Event, Thread
 
 
 STATUS_TO_EVENT = {
@@ -107,6 +108,7 @@ class HTTPIngressMetrics:
         self.invalid_requests = 0
         self.oversized_requests = 0
         self.routed_events = 0
+        self.dropped_events = 0
 
     def as_dict(self):
         return {
@@ -115,6 +117,7 @@ class HTTPIngressMetrics:
             "invalid_requests": self.invalid_requests,
             "oversized_requests": self.oversized_requests,
             "routed_events": self.routed_events,
+            "dropped_events": self.dropped_events,
         }
 
 
@@ -170,6 +173,9 @@ def handle_notification_request(path, body, event_router, logger, config, metric
         metrics.ignored_requests += 1
         return 202, b"Ignored", "text/plain; charset=utf-8"
 
+    if not config.http_ingress_shadow_mode:
+        route_batch = []
+
     for mapped_event, raw_status, notification_payload in notification_events:
         logger.info(
             "Accepted HTTP ingress event "
@@ -178,12 +184,39 @@ def handle_notification_request(path, body, event_router, logger, config, metric
         )
 
         if not config.http_ingress_shadow_mode:
-            event_router.route_event(
-                mapped_event,
-                source="volumio_http",
-                raw_payload=notification_payload,
+            route_batch.append(
+                (
+                    mapped_event,
+                    "volumio_http",
+                    notification_payload,
+                    raw_status,
+                )
             )
-            metrics.routed_events += 1
+
+    if not config.http_ingress_shadow_mode:
+        route_events = getattr(event_router, "route_events", None)
+        if route_events is not None:
+            accepted = route_events(route_batch)
+        else:
+            accepted = True
+            for mapped_event, source, notification_payload, _raw_status in route_batch:
+                if not event_router.route_event(
+                    mapped_event,
+                    source=source,
+                    raw_payload=notification_payload,
+                ):
+                    accepted = False
+                    break
+
+        if not accepted:
+            metrics.dropped_events += len(route_batch)
+            logger.warning(
+                "Dropping HTTP ingress request because async queue is full "
+                f"source=volumio_http event_count={len(route_batch)}"
+            )
+            return 503, b"Queue Full", "text/plain; charset=utf-8"
+
+        metrics.routed_events += len(route_batch)
 
     metrics.accepted_requests += 1
     return 202, b"Accepted", "text/plain; charset=utf-8"
@@ -241,6 +274,7 @@ class HTTPIngressServer:
         self.app_config = app_config
         self.status_provider = status_provider
         self.metrics = HTTPIngressMetrics()
+        self.async_event_router = None
         self.server = None
         self.thread = None
 
@@ -248,8 +282,15 @@ class HTTPIngressServer:
         if not self.app_config.http_ingress_enabled:
             return
 
+        max_queue_size = getattr(self.app_config, "http_ingress_max_queue_size", 128)
+        async_event_router = AsyncEventRouter(
+            self.event_router,
+            self.logger,
+            max_queue_size=max_queue_size,
+        )
+
         handler = type("ConfiguredHTTPIngressHandler", (HTTPIngressHandler,), {})
-        handler.event_router = self.event_router
+        handler.event_router = async_event_router
         handler.logger = self.logger
         handler.app_config = self.app_config
         handler.metrics = self.metrics
@@ -262,6 +303,8 @@ class HTTPIngressServer:
             (self.app_config.http_ingress_host, self.app_config.http_ingress_port),
             handler,
         )
+        self.async_event_router = async_event_router
+        self.async_event_router.start()
         self.thread = Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.logger.info(
@@ -275,15 +318,95 @@ class HTTPIngressServer:
 
     def stop(self):
         if self.server is None:
+            if self.async_event_router is not None:
+                if self.async_event_router.stop():
+                    self.async_event_router = None
             return
 
         self.server.shutdown()
         self.server.server_close()
         self.server = None
         self.thread = None
+        if self.async_event_router is not None:
+            if self.async_event_router.stop():
+                self.async_event_router = None
 
     def address(self):
         if self.server is None:
             return None
 
         return self.server.server_address
+
+
+class AsyncEventRouter:
+    def __init__(self, event_router, logger, max_queue_size=128) -> None:
+        self.event_router = event_router
+        self.logger = logger
+        self._queue = Queue(maxsize=max_queue_size)
+        self._stop_event = Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is not None:
+            return
+
+        self._stop_event.clear()
+        self._thread = Thread(target=self.__run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        if self._thread is None:
+            return True
+
+        self._stop_event.set()
+        self._thread.join(timeout=5)
+        if self._thread.is_alive():
+            self.logger.warning(
+                "HTTP ingress async router worker did not stop before timeout"
+            )
+            return False
+
+        self._thread = None
+        return True
+
+    def route_event(self, event, source: str, raw_payload=None):
+        try:
+            self._queue.put_nowait((event, source, raw_payload))
+            return True
+        except Full:
+            return False
+
+    def route_events(self, events):
+        if len(events) == 0:
+            return True
+
+        with self._queue.mutex:
+            available_slots = self._queue.maxsize - self._queue._qsize()
+            if available_slots < len(events):
+                return False
+
+            for event, source, raw_payload, _raw_status in events:
+                self._queue._put((event, source, raw_payload))
+
+            self._queue.unfinished_tasks += len(events)
+            self._queue.not_empty.notify(len(events))
+
+        return True
+
+    def __run(self):
+        while not self._stop_event.is_set() or not self._queue.empty():
+            try:
+                event, source, raw_payload = self._queue.get(timeout=0.1)
+            except Empty:
+                continue
+
+            try:
+                self.event_router.route_event(
+                    event,
+                    source=source,
+                    raw_payload=raw_payload,
+                )
+            except Exception as e:
+                self.logger.error(f"Error routing HTTP ingress event asynchronously: {e}")
+            finally:
+                self._queue.task_done()
