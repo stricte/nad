@@ -262,15 +262,14 @@ class HTTPIngressServer:
             return
 
         max_queue_size = getattr(self.app_config, "http_ingress_max_queue_size", 128)
-        self.async_event_router = AsyncEventRouter(
+        async_event_router = AsyncEventRouter(
             self.event_router,
             self.logger,
             max_queue_size=max_queue_size,
         )
-        self.async_event_router.start()
 
         handler = type("ConfiguredHTTPIngressHandler", (HTTPIngressHandler,), {})
-        handler.event_router = self.async_event_router
+        handler.event_router = async_event_router
         handler.logger = self.logger
         handler.app_config = self.app_config
         handler.metrics = self.metrics
@@ -283,6 +282,8 @@ class HTTPIngressServer:
             (self.app_config.http_ingress_host, self.app_config.http_ingress_port),
             handler,
         )
+        self.async_event_router = async_event_router
+        self.async_event_router.start()
         self.thread = Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.logger.info(

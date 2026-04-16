@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from http_ingress import (
     AsyncEventRouter,
@@ -509,3 +510,25 @@ class HTTPIngressServerLifecycleTests(unittest.TestCase):
         self.assertIs(server.async_event_router, async_router)
         self.assertIsNotNone(server.async_event_router._thread)
         self.assertTrue(server.async_event_router._thread.is_alive())
+
+    def test_start_does_not_keep_async_router_when_server_bind_fails(self):
+        server = HTTPIngressServer(
+            self.event_router,
+            self.logger,
+            SimpleNamespace(
+                http_ingress_enabled=True,
+                http_ingress_path="/ingress/volumio/notifications",
+                http_ingress_status_path="/ingress/status",
+                http_ingress_shadow_mode=False,
+                http_ingress_host="127.0.0.1",
+                http_ingress_port=8080,
+                http_ingress_max_body_bytes=1024,
+            ),
+        )
+
+        with patch("http_ingress.ThreadingHTTPServer", side_effect=OSError("bind failed")):
+            with self.assertRaises(OSError):
+                server.start()
+
+        self.assertIsNone(server.server)
+        self.assertIsNone(server.async_event_router)
