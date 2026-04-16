@@ -247,6 +247,46 @@ class HTTPIngressTests(unittest.TestCase):
             [("playing", "volumio_http", {"status": "play"})],
         )
 
+    def test_async_event_router_rejects_event_when_queue_is_full(self):
+        async_router = AsyncEventRouter(self.event_router, self.logger, max_queue_size=1)
+
+        self.assertTrue(
+            async_router.route_event(
+                "playing",
+                source="volumio_http",
+                raw_payload={"status": "play"},
+            )
+        )
+        self.assertFalse(
+            async_router.route_event(
+                "paused",
+                source="volumio_http",
+                raw_payload={"status": "pause"},
+            )
+        )
+
+    def test_returns_503_when_async_queue_is_full(self):
+        self.config.http_ingress_shadow_mode = False
+
+        class FullEventRouter:
+            def route_event(self, _event_name, source, raw_payload=None):
+                return False
+
+        status_code, response_body, _content_type = handle_notification_request(
+            self.config.http_ingress_path,
+            json.dumps({"status": "pause"}).encode("utf-8"),
+            FullEventRouter(),
+            self.logger,
+            self.config,
+            self.metrics,
+        )
+
+        self.assertEqual(status_code, 503)
+        self.assertEqual(response_body, b"Queue Full")
+        self.assertEqual(self.metrics.accepted_requests, 0)
+        self.assertEqual(self.metrics.routed_events, 0)
+        self.assertEqual(self.metrics.dropped_events, 1)
+
     def test_ignores_unknown_status(self):
         status_code, response_body, _content_type = handle_notification_request(
             self.config.http_ingress_path,
